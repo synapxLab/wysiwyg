@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>@synapxlab/wysiwyg — démo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f0f2f5; min-height: 100vh; padding: 24px; }
+    #demo { max-width: 900px; margin: 0 auto; }
+    h1 { font-size: 20px; margin-bottom: 16px; color: #111; }
+    #editor-wrap { height: 500px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: #fff; }
+    #output { margin-top: 16px; padding: 12px; background: #1e1e2e; color: #cdd6f4; border-radius: 8px; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; }
+    .actions { margin-top: 12px; display: flex; gap: 8px; }
+    button { padding: 8px 16px; border: 1px solid #4f46e5; border-radius: 6px; background: #4f46e5; color: #fff; cursor: pointer; font-size: 13px; }
+    button.secondary { background: transparent; color: #4f46e5; }
+  </style>
+</head>
+<body>
+  <div id="demo">
+    <h1>@synapxlab/wysiwyg</h1>
+    <div id="editor-wrap"></div>
+    <div class="actions">
+      <button id="btn-get">Voir le HTML</button>
+      <button id="btn-set" class="secondary">Charger exemple</button>
+    </div>
+    <pre id="output">// HTML apparaîtra ici</pre>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

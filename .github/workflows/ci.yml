@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Build library + types
+        run: npm run build:lib
+
+      - name: Check dist artifacts
+        run: |
+          ls -lh dist/
+          test -f dist/wysiwyg.es.js
+          test -f dist/wysiwyg.cjs.js
+          test -f dist/wysiwyg.css
+          test -f dist/types/index.d.ts

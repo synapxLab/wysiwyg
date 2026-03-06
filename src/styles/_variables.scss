@@ -1,0 +1,22 @@
+// ─── Design tokens ────────────────────────────────────────────────────────────
+:root {
+  --be-primary:       #4f46e5;
+  --be-primary-hover: #4338ca;
+  --be-danger:        #ef4444;
+
+  --be-bg:            #f8f9fa;
+  --be-surface:       #ffffff;
+  --be-border:        #e5e7eb;
+  --be-border-hover:  #c8cdd6;
+
+  --be-text:          #111827;
+  --be-text-muted:    #6b7280;
+
+  --be-radius:        6px;
+  --be-shadow:        0 1px 3px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.08);
+  --be-shadow-lg:     0 4px 16px rgba(0,0,0,.14);
+  --be-transition:    160ms ease;
+  --be-font:          system-ui, -apple-system, sans-serif;
+  --be-font-mono:     'Courier New', monospace;
+  --be-hover:         rgba(0,0,0,.05);
+}
