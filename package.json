@@ -1,6 +1,6 @@
 {
   "name": "@synapxlab/wysiwyg",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "WYSIWYG rich-text editor — zero runtime dependencies, TypeScript + SCSS",
   "keywords": [
     "wysiwyg",
