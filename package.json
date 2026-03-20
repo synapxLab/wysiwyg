@@ -3,25 +3,35 @@
   "version": "1.0.0",
   "description": "WYSIWYG rich-text editor — zero runtime dependencies, TypeScript + SCSS",
   "keywords": [
-    "wysiwyg", "editor", "rich-text", "contenteditable",
-    "typescript", "zero-dependency", "table", "twig"
+    "wysiwyg",
+    "editor",
+    "rich-text",
+    "contenteditable",
+    "typescript",
+    "zero-dependency",
+    "table",
+    "twig"
   ],
   "homepage": "https://github.com/synapxLab/wysiwyg#readme",
-  "bugs": { "url": "https://github.com/synapxLab/wysiwyg/issues" },
+  "bugs": {
+    "url": "https://github.com/synapxLab/wysiwyg/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/synapxLab/wysiwyg.git"
   },
   "license": "MIT",
   "author": "SynapxLab",
-  "sideEffects": ["*.css"],
+  "sideEffects": [
+    "*.css"
+  ],
   "main": "./dist/wysiwyg.cjs.js",
   "module": "./dist/wysiwyg.es.js",
   "types": "./dist/types/index.d.ts",
   "exports": {
     ".": {
-      "types":   "./dist/types/index.d.ts",
-      "import":  "./dist/wysiwyg.es.js",
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/wysiwyg.es.js",
       "require": "./dist/wysiwyg.cjs.js"
     },
     "./dist/wysiwyg.css": "./dist/wysiwyg.css"
@@ -31,18 +41,38 @@
     "LICENSE",
     "README.md"
   ],
-  "engines": { "node": ">=14.0.0" },
+  "engines": {
+    "node": ">=14.0.0"
+  },
   "scripts": {
-    "dev":            "vite",
-    "build":          "vite build",
-    "build:lib":      "vite build --config vite.lib.config.ts && tsc -p tsconfig.build.json",
-    "build:types":    "tsc -p tsconfig.build.json",
-    "preview":        "vite preview",
+    "dev": "vite",
+    "build": "vite build",
+    "build:lib": "vite build --config vite.lib.config.ts && tsc -p tsconfig.build.json",
+    "build:types": "tsc -p tsconfig.build.json",
+    "preview": "vite preview",
     "prepublishOnly": "npm run build:lib"
   },
   "devDependencies": {
-    "sass":       "^1.97.3",
+    "sass": "^1.97.3",
     "typescript": "^5.0.0",
-    "vite":       "^7.3.1"
+    "vite": "^7.3.1"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.3",
+    "detect-libc": "^2.1.2",
+    "esbuild": "^0.27.3",
+    "fdir": "^6.5.0",
+    "immutable": "^5.1.5",
+    "is-extglob": "^2.1.1",
+    "is-glob": "^4.0.3",
+    "nanoid": "^3.3.11",
+    "node-addon-api": "^7.1.1",
+    "picocolors": "^1.1.1",
+    "picomatch": "^4.0.3",
+    "postcss": "^8.5.8",
+    "readdirp": "^4.1.2",
+    "rollup": "^4.59.0",
+    "source-map-js": "^1.2.1",
+    "tinyglobby": "^0.2.15"
   }
 }
