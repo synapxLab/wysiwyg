@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.1] — 2026-03-21
+
+### Added
+- **Brand label in status bar** — displays `@synapxlab/wysiwyg vX.X.X` on the left, version injected from `package.json` at build time via `define: { __PKG_VERSION__ }`
+
+### Fixed
+- **Resize grip** — editor root (`be-wysiwyg`) and parent wrapper both resize together; fixes grip not following the cursor when the editor is mounted inside a fixed-height container (e.g. `#editor-wrap { height: 560px }` in production)
+
+---
+
+## [1.2.0] — 2026-03-21
+
+### Added
+- **Mermaid diagrams** — inject any Mermaid v10+ instance via `opts.mermaid`, enable button with `toolbar: { mermaid: true }`. Zero bundle impact. Fenced code blocks (` ```mermaid ``` `) stripped automatically. Click diagram to re-edit.
+- **Raw CSS textarea** in element properties Style tab — paste multi-line CSS with or without selector wrapper (`.foo { ... }`)
+- **Height resize grip** — drag icon in status bar bottom-right resizes the parent container
+- **Image drop from browser** — dragging an image from another tab extracts the URL and inserts the image directly (no upload needed)
+
+### Changed
+- **Format HTML button** moved to position 2 in toolbar, now hidden when not in source mode
+- Editor and source view padding reduced to `10px`
+- Element hover outline reduced from `2px` to `1px`
+- Word count shifted left to reveal resize grip
+
+### Fixed
+- Italic icon was invisible (stroke path rendered with fill)
+- `text-shadow` / `filter` inherited from host page no longer bleeds into source editor
+- Mermaid blocks are protected during HTML formatting (SVG no longer broken by pretty-printer)
+- Mermaid render errors displayed inline in modal with actual error message; orphaned DOM elements cleaned up
+
+---
+
+## [1.1.0] — 2026-03-06
+
+### Added
+- CSS import path `@synapxlab/wysiwyg/style.css`
+- Node.js engine requirement bumped to `>=18.0.0`
+- All previously indirect dependencies moved to `devDependencies`
+
+---
+
 ## [1.0.0] — 2026-03-06
 
 ### Added

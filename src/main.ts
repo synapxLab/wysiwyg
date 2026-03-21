@@ -1,9 +1,15 @@
 import { WysiwygEditor } from './index';
+import mermaid from 'mermaid';
+
+mermaid.initialize({ startOnLoad: false, theme: 'default' });
 
 const wrap = document.getElementById('editor-wrap')!;
 const output = document.getElementById('output')!;
 
-const editor = new WysiwygEditor();
+const editor = new WysiwygEditor({
+  mermaid,
+  toolbar: { mermaid: true },
+});
 editor.el.style.height = '100%';
 wrap.appendChild(editor.el);
 

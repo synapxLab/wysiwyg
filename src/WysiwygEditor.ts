@@ -96,6 +96,8 @@ export interface WysiwygToolbarConfig {
   fullscreen?: boolean;
   /** Bouton Formater / indenter le HTML en mode source (défaut: true) */
   formatHtml?: boolean;
+  /** Bouton diagramme Mermaid (défaut: false — nécessite opts.mermaid) */
+  mermaid?: boolean;
 }
 
 export interface WysiwygOptions {
@@ -129,6 +131,17 @@ export interface WysiwygOptions {
    * })
    */
   upload?: (file: File) => Promise<string>;
+  /**
+   * Instance Mermaid (v10+) pour le rendu de diagrammes.
+   * Permet d'injecter mermaid sans l'embarquer dans le bundle.
+   *
+   * @example
+   * import mermaid from 'mermaid';
+   * mermaid.initialize({ startOnLoad: false });
+   * new WysiwygEditor({ mermaid })
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mermaid?: any;
 }
 
 export class WysiwygEditor {
@@ -171,6 +184,7 @@ export class WysiwygEditor {
     this.setupDragDrop();
     this.setupImageResize();
     this.setupClickOutside();
+    this.setupMermaidClickHandler();
     this.setupElementInspector();
   }
 
@@ -679,6 +693,69 @@ export class WysiwygEditor {
     const esc = (s: string) => s.replace(/"/g, '&quot;');
     document.execCommand('insertHTML', false, `<img src="${esc(src)}" alt="" style="max-width:100%">`);
     this.onChange?.();
+  }
+
+  // ── Mermaid ─────────────────────────────────────────────────────────────────
+
+  private insertMermaid(existingEl?: HTMLElement): void {
+    if (!this.opts.mermaid) return;
+    const existingCode = existingEl?.getAttribute('data-mermaid-code') ?? '';
+    this.saveRange();
+    this.formModal.show({
+      title: 'Diagramme Mermaid',
+      submitLabel: existingEl ? 'Mettre à jour' : 'Insérer',
+      fields: [
+        {
+          key: 'code',
+          label: 'Code Mermaid',
+          type: 'textarea',
+          rows: 10,
+          value: existingCode,
+          placeholder: 'flowchart LR\n  A[Début] --> B{Condition}\n  B -->|Oui| C[Résultat]\n  B -->|Non| D[Fin]',
+        },
+      ],
+      onSubmit: async (v) => {
+        // Supprimer les délimiteurs markdown ```mermaid ... ``` si présents
+        const raw = v.code?.trim() ?? '';
+        const code = raw.replace(/^```[a-z]*\n?/i, '').replace(/```\s*$/, '').trim();
+        if (!code) return;
+        try {
+          const id = `be-mermaid-${Date.now()}`;
+          const { svg } = await this.opts.mermaid.render(id, code);
+          // Nettoyer les éléments orphelins laissés par mermaid dans le body
+          document.getElementById(id)?.remove();
+          document.getElementById(`d${id}`)?.remove();
+          const esc = (s: string) => s.replace(/"/g, '&quot;').replace(/\n/g, '&#10;');
+          const block = `<div class="be-mermaid" data-mermaid-code="${esc(code)}" contenteditable="false">${svg}</div>`;
+          if (existingEl) {
+            existingEl.outerHTML = block;
+          } else {
+            this.restoreRange();
+            document.execCommand('insertHTML', false, block);
+          }
+          this.onChange?.();
+        } catch (err: unknown) {
+          // Nettoyer les éléments orphelins en cas d'erreur aussi
+          document.querySelectorAll('[id^="be-mermaid-"]').forEach(el => {
+            if (!el.closest('.be-wysiwyg')) el.remove();
+          });
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error('[wysiwyg] Mermaid render error:', err);
+          this.formModal.showError(`Erreur Mermaid : ${msg}`);
+        }
+      },
+    });
+  }
+
+  private setupMermaidClickHandler(): void {
+    this.editorEl.addEventListener('click', (e) => {
+      const target = (e.target as HTMLElement).closest('.be-mermaid') as HTMLElement | null;
+      if (target) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.insertMermaid(target);
+      }
+    });
   }
 
   // ── Exec helpers ────────────────────────────────────────────────────────────
@@ -1839,6 +1916,8 @@ export class WysiwygEditor {
       s1.push(this.makeExecBtn('removeFormat', icn.removeFormat, 'Supprimer mise en forme'));
     if (this.show('pasteClean'))
       s1.push(this.makeBtn(icn.pasteClean, 'Nettoyer le contenu (supprime styles et classes)', () => this.cleanContent()));
+    if (this.opts.mermaid && this.show('mermaid', false))
+      s1.push(this.makeBtn(icn.mermaid, 'Insérer un diagramme Mermaid', () => this.insertMermaid()));
     if (s1.length) sections.push(s1);
 
     // ── 2 · Listes ────────────────────────────────────────────────────────────
@@ -1963,6 +2042,12 @@ export class WysiwygEditor {
     if (this.opts.wordCount === false) return;
     this.statusBarEl = document.createElement('div');
     this.statusBarEl.className = 'be-wysiwyg__statusbar';
+
+    const brand = document.createElement('span');
+    brand.className = 'be-wysiwyg__brand';
+    brand.textContent = `@synapxlab/wysiwyg v${__PKG_VERSION__}`;
+    this.statusBarEl.appendChild(brand);
+
     this.wordCountEl = document.createElement('span');
     this.wordCountEl.className = 'be-wysiwyg__wordcount';
     this.statusBarEl.appendChild(this.wordCountEl);
@@ -1979,14 +2064,23 @@ export class WysiwygEditor {
 
   private startEditorResize(e: MouseEvent): void {
     e.preventDefault();
-    const target = (this.el.parentElement ?? this.el) as HTMLElement;
+    const parent = this.el.parentElement ?? this.el;
     const startY = e.clientY;
-    const startH = target.offsetHeight;
+    // Snapshot both heights: parent wrapper (e.g. #editor-wrap) AND the editor root
+    const startParentH = parent.offsetHeight;
+    const startSelfH   = this.el.offsetHeight;
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'ns-resize';
 
     const onMove = (me: MouseEvent) => {
-      target.style.height = `${Math.max(100, startH + (me.clientY - startY))}px`;
+      const delta = me.clientY - startY;
+      const newH  = Math.max(100, startSelfH + delta);
+      // Resize the editor root (grip follows the mouse)
+      this.el.style.height = `${newH}px`;
+      // Always resize the parent wrapper too so it never clips the editor
+      if (parent !== this.el) {
+        parent.style.height = `${Math.max(100, startParentH + delta)}px`;
+      }
     };
     const onUp = () => {
       document.removeEventListener('mousemove', onMove);
@@ -2010,7 +2104,20 @@ export class WysiwygEditor {
 
   private formatHtmlSource(): void {
     if (!this.sourceMode) this.toggleSourceMode();
-    this.sourceEl.value = this.prettyHtml(this.sourceEl.value);
+
+    // Protéger les blocs be-mermaid (SVG complexe) avant le formatage
+    const placeholders: string[] = [];
+    const protected_html = this.sourceEl.value.replace(
+      /<div[^>]*class="[^"]*be-mermaid[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+      (match) => { placeholders.push(match); return `<!--MERMAID_PLACEHOLDER_${placeholders.length - 1}-->`; }
+    );
+
+    let formatted = this.prettyHtml(protected_html);
+
+    // Restaurer les blocs mermaid
+    formatted = formatted.replace(/<!--MERMAID_PLACEHOLDER_(\d+)-->/g, (_, i) => placeholders[+i]);
+
+    this.sourceEl.value = formatted;
     this.refreshHighlight();
     this.onChange?.();
   }
@@ -2460,6 +2567,26 @@ class WysiwygFormModal {
     opts.onSubmit(values);
   }
 
+  showError(message: string): void {
+    // Afficher l'erreur dans la modale si elle est ouverte, sinon en toast
+    if (this.isOpen) {
+      let errEl = this.bodyEl.querySelector<HTMLElement>('.be-form-modal__error');
+      if (!errEl) {
+        errEl = document.createElement('div');
+        errEl.className = 'be-form-modal__error';
+        this.bodyEl.prepend(errEl);
+      }
+      errEl.textContent = message;
+    } else {
+      // Toast temporaire
+      const toast = document.createElement('div');
+      toast.className = 'be-toast be-toast--error';
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 5000);
+    }
+  }
+
   close(): void {
     if (!this.isOpen) return;
     this.isOpen = false;
@@ -2756,6 +2883,7 @@ const icn = {
   fullscreen:   S('<path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/>'),
   compress:     S('<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>'),
   formatHtml:   S('<line x1="21" y1="10" x2="7" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="7" y2="18"/>'),
+  mermaid:      S('<rect x="3" y="3" width="7" height="5" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="8" y="16" width="8" height="5" rx="1"/><line x1="6.5" y1="8" x2="6.5" y2="12"/><line x1="17.5" y1="8" x2="17.5" y2="12"/><line x1="6.5" y1="12" x2="12" y2="12"/><line x1="17.5" y1="12" x2="12" y2="12"/><line x1="12" y1="12" x2="12" y2="16"/>'),
   specialChar:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 3C8 3 5 7 5 12s3 9 7 9 7-4 7-9"/><path d="M16 8l-2 4h4l-2 4"/></svg>`,
   image:        S('<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>'),
   link:         S('<path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>'),
