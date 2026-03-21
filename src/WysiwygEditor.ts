@@ -2066,21 +2066,15 @@ export class WysiwygEditor {
     e.preventDefault();
     const parent = this.el.parentElement ?? this.el;
     const startY = e.clientY;
-    // Snapshot both heights: parent wrapper (e.g. #editor-wrap) AND the editor root
-    const startParentH = parent.offsetHeight;
-    const startSelfH   = this.el.offsetHeight;
+    const startH = this.el.offsetHeight;
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'ns-resize';
 
     const onMove = (me: MouseEvent) => {
-      const delta = me.clientY - startY;
-      const newH  = Math.max(100, startSelfH + delta);
-      // Resize the editor root (grip follows the mouse)
+      const newH = Math.max(100, startH + (me.clientY - startY));
+      // Both editor and parent always share the same height — no gap possible
       this.el.style.height = `${newH}px`;
-      // Always resize the parent wrapper too so it never clips the editor
-      if (parent !== this.el) {
-        parent.style.height = `${Math.max(100, startParentH + delta)}px`;
-      }
+      if (parent !== this.el) parent.style.height = `${newH}px`;
     };
     const onUp = () => {
       document.removeEventListener('mousemove', onMove);
