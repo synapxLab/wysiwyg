@@ -1,6 +1,6 @@
 {
   "name": "@synapxlab/wysiwyg",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "WYSIWYG rich-text editor — zero runtime dependencies, TypeScript + SCSS",
   "keywords": [
     "wysiwyg",
@@ -34,7 +34,7 @@
       "import": "./dist/wysiwyg.es.js",
       "require": "./dist/wysiwyg.cjs.js"
     },
-    "./dist/wysiwyg.css": "./dist/wysiwyg.css"
+    "./style.css": "./dist/wysiwyg.css"
   },
   "files": [
     "dist",
@@ -42,7 +42,7 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=18.0.0"
   },
   "scripts": {
     "dev": "vite",
@@ -55,9 +55,7 @@
   "devDependencies": {
     "sass": "^1.97.3",
     "typescript": "^5.0.0",
-    "vite": "^7.3.1"
-  },
-  "dependencies": {
+    "vite": "^7.3.1",
     "chokidar": "^4.0.3",
     "detect-libc": "^2.1.2",
     "esbuild": "^0.27.3",

@@ -478,7 +478,7 @@ export class WysiwygEditor {
 
     // Propriétés
     const propsBtn = this.makeImgTbBtn(
-      S2('<circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/>'),
+      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"></path></svg>`,
       'Propriétés',
       () => { this.hideImgResizer(); this.openElementPropsModal(img); }
     );
@@ -626,8 +626,15 @@ export class WysiwygEditor {
   // ── Drag & drop images ─────────────────────────────────────────────────────
 
   private setupDragDrop(): void {
+    const isImageDrag = (e: DragEvent): boolean => {
+      const items = Array.from(e.dataTransfer?.items ?? []);
+      if (items.some(i => i.kind === 'file' && i.type.startsWith('image/'))) return true;
+      const types = Array.from(e.dataTransfer?.types ?? []);
+      return types.includes('text/uri-list') || types.includes('text/html');
+    };
+
     this.editorEl.addEventListener('dragover', (e) => {
-      if (Array.from(e.dataTransfer?.items ?? []).some(i => i.kind === 'file' && i.type.startsWith('image/'))) {
+      if (isImageDrag(e)) {
         e.preventDefault();
         this.editorEl.classList.add('be-wysiwyg__editor--dragover');
       }
@@ -639,9 +646,9 @@ export class WysiwygEditor {
     });
     this.editorEl.addEventListener('drop', (e) => {
       this.editorEl.classList.remove('be-wysiwyg__editor--dragover');
-      const files = Array.from(e.dataTransfer?.files ?? []).filter(f => f.type.startsWith('image/'));
-      if (!files.length) return;
+      if (!isImageDrag(e)) return;
       e.preventDefault();
+
       // Position cursor at drop point
       const range = document.caretRangeFromPoint?.(e.clientX, e.clientY);
       if (range) {
@@ -649,8 +656,29 @@ export class WysiwygEditor {
         sel?.removeAllRanges();
         sel?.addRange(range);
       }
-      this.handleImageFile(files[0]);
+
+      // Image depuis le navigateur → URL en priorité
+      const uri = e.dataTransfer?.getData('text/uri-list');
+      if (uri && uri.trim()) {
+        const url = uri.split('\n').map(s => s.trim()).find(s => s && !s.startsWith('#'));
+        if (url) { this.insertImageFromUrl(url); return; }
+      }
+
+      // Fallback : extraire src depuis le HTML draggé
+      const html = e.dataTransfer?.getData('text/html') ?? '';
+      const match = html.match(/<img[^>]+src="([^"]+)"/i);
+      if (match?.[1]) { this.insertImageFromUrl(match[1]); return; }
+
+      // Fichier local → upload callback ou modale
+      const files = Array.from(e.dataTransfer?.files ?? []).filter(f => f.type.startsWith('image/'));
+      if (files.length) this.handleImageFile(files[0]);
     });
+  }
+
+  private insertImageFromUrl(src: string): void {
+    const esc = (s: string) => s.replace(/"/g, '&quot;');
+    document.execCommand('insertHTML', false, `<img src="${esc(src)}" alt="" style="max-width:100%">`);
+    this.onChange?.();
   }
 
   // ── Exec helpers ────────────────────────────────────────────────────────────
@@ -698,18 +726,21 @@ export class WysiwygEditor {
   private toggleSourceMode(): void {
     this.sourceMode = !this.sourceMode;
     const sourceBtn = this.toolbarEl.querySelector<HTMLElement>('[data-id="source"]');
+    const fmtBtn = this.toolbarEl.querySelector<HTMLElement>('[data-id="formatHtml"]');
     if (this.sourceMode) {
       this.sourceEl.value = this.getHtml();
       this.refreshHighlight();
       this.editorEl.style.display = 'none';
       this.sourceWrapEl.style.display = '';
       sourceBtn?.classList.add('be-wysiwyg__btn--active');
+      if (fmtBtn) fmtBtn.style.display = '';
       setTimeout(() => this.sourceEl.focus(), 0);
     } else {
       this.applyHtml(this.sourceEl.value);
       this.sourceWrapEl.style.display = 'none';
       this.editorEl.style.display = '';
       sourceBtn?.classList.remove('be-wysiwyg__btn--active');
+      if (fmtBtn) fmtBtn.style.display = 'none';
       this.editorEl.focus();
     }
   }
@@ -1550,6 +1581,15 @@ export class WysiwygEditor {
     const tag = el.tagName.toLowerCase();
     const s = (prop: string) => el.style.getPropertyValue(prop);
     const a = (attr: string) => el.getAttribute(attr) ?? '';
+    const rawCssValue = Array.from(el.style).map(p => `${p}: ${el.style.getPropertyValue(p)};`).join('\n');
+    const rawCssField: WysiwygFormField = {
+      key: '__rawcss',
+      label: 'CSS brut',
+      type: 'textarea',
+      rows: 7,
+      placeholder: 'font-size: 60px;\ncolor: #fff;\ntransform: rotate(-7deg);',
+      value: rawCssValue,
+    };
 
     // ── <img> ────────────────────────────────────────────────────────────────
     if (tag === 'img') {
@@ -1596,6 +1636,7 @@ export class WysiwygEditor {
           { key: 'vertical-align',label: 'vertical-align',type: 'select', value: s('vertical-align'), options: [
             { value: '', label: '— défaut —' }, { value: 'top', label: 'top' }, { value: 'middle', label: 'middle' }, { value: 'bottom', label: 'bottom' }, { value: 'baseline', label: 'baseline' },
           ]},
+          rawCssField,
         ]},
       ];
     }
@@ -1633,6 +1674,7 @@ export class WysiwygEditor {
           { key: 'padding',    label: 'padding',    type: 'text', value: s('padding') },
           { key: 'border',     label: 'border',     type: 'text', value: s('border') },
           { key: 'border-radius', label: 'border-radius', type: 'text', value: s('border-radius') },
+          rawCssField,
         ]},
       ];
     }
@@ -1668,6 +1710,7 @@ export class WysiwygEditor {
         { key: 'padding',        label: 'padding',        type: 'text', placeholder: '8px',    value: s('padding') },
         { key: 'border',         label: 'border',         type: 'text', placeholder: '1px solid #ccc', value: s('border') },
         { key: 'border-radius',  label: 'border-radius',  type: 'text', placeholder: '4px',    value: s('border-radius') },
+        rawCssField,
       ]},
     ];
   }
@@ -1715,7 +1758,7 @@ export class WysiwygEditor {
       target.textContent = v.text;
     }
 
-    // Propriétés CSS inline
+    // Propriétés CSS inline (champs individuels)
     for (const prop of ['color', 'background', 'font-size', 'font-weight', 'font-style',
       'text-align', 'line-height', 'letter-spacing', 'text-decoration', 'margin', 'padding',
       'border', 'border-radius', 'box-shadow', 'width', 'height', 'float', 'display',
@@ -1723,6 +1766,19 @@ export class WysiwygEditor {
       if (prop in v) {
         if (v[prop]) target.style.setProperty(prop, v[prop]);
         else target.style.removeProperty(prop);
+      }
+    }
+
+    // CSS brut — appliqué en dernier (priorité sur les champs individuels)
+    if (v['__rawcss'] && v['__rawcss'].trim()) {
+      // Supporte le collage avec ou sans sélecteur : .foo { ... } ou directement prop: val;
+      const block = v['__rawcss'].replace(/^[^{]*\{([\s\S]*)\}\s*$/, '$1');
+      for (const line of block.split(';')) {
+        const idx = line.indexOf(':');
+        if (idx === -1) continue;
+        const prop = line.slice(0, idx).trim();
+        const val  = line.slice(idx + 1).trim();
+        if (prop && val) target.style.setProperty(prop, val);
       }
     }
 
@@ -1758,12 +1814,15 @@ export class WysiwygEditor {
     const s0: HTMLElement[] = [];
     if (this.show('source'))
       s0.push(this.makeBtn(icn.source, 'Source HTML', () => this.toggleSourceMode(), 'source'));
+    if (this.show('formatHtml')) {
+      const fmtBtn = this.makeBtn(icn.formatHtml, 'Formater / indenter le HTML', () => this.formatHtmlSource(), 'formatHtml');
+      fmtBtn.style.display = 'none';
+      s0.push(fmtBtn);
+    }
     if (this.show('history')) {
       s0.push(this.makeExecBtn('undo', icn.undo, 'Annuler (Ctrl+Z)'));
       s0.push(this.makeExecBtn('redo', icn.redo, 'Refaire (Ctrl+Y)'));
     }
-    if (this.show('formatHtml'))
-      s0.push(this.makeBtn(icn.formatHtml, 'Formater / indenter le HTML', () => this.formatHtmlSource()));
     if (this.show('fullscreen'))
       s0.push(this.makeBtn(icn.fullscreen, 'Plein écran', () => this.toggleFullscreen(), 'fullscreen'));
     if (s0.length) sections.push(s0);
@@ -1907,8 +1966,36 @@ export class WysiwygEditor {
     this.wordCountEl = document.createElement('span');
     this.wordCountEl.className = 'be-wysiwyg__wordcount';
     this.statusBarEl.appendChild(this.wordCountEl);
+
+    const grip = document.createElement('div');
+    grip.className = 'be-wysiwyg__resize-grip';
+    grip.innerHTML = `<svg viewBox="0 0 10 6" width="10" height="6" fill="currentColor"><rect y="0" width="10" height="1.5" rx="1"/><rect y="4.5" width="10" height="1.5" rx="1"/></svg>`;
+    grip.addEventListener('mousedown', (e) => this.startEditorResize(e));
+    this.statusBarEl.appendChild(grip);
+
     this.el.appendChild(this.statusBarEl);
     this.updateWordCount();
+  }
+
+  private startEditorResize(e: MouseEvent): void {
+    e.preventDefault();
+    const target = (this.el.parentElement ?? this.el) as HTMLElement;
+    const startY = e.clientY;
+    const startH = target.offsetHeight;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'ns-resize';
+
+    const onMove = (me: MouseEvent) => {
+      target.style.height = `${Math.max(100, startH + (me.clientY - startY))}px`;
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
 
   private updateWordCount(): void {
@@ -2097,13 +2184,14 @@ export class WysiwygEditor {
 interface WysiwygFormField {
   key: string;
   label: string;
-  type: 'text' | 'url' | 'select' | 'color' | 'number';
+  type: 'text' | 'url' | 'select' | 'color' | 'number' | 'textarea';
   placeholder?: string;
   required?: boolean;
   value?: string;
   options?: { value: string; label: string }[];
   /** Titre de section affiché avant ce champ */
   sectionLabel?: string;
+  rows?: number;
 }
 
 interface WysiwygFormTab {
@@ -2128,7 +2216,7 @@ class WysiwygFormModal {
   private readonly bodyEl: HTMLElement;
   private submitBtnEl!: HTMLButtonElement;
   private currentOpts: WysiwygFormOpts | null = null;
-  private inputs: Map<string, HTMLInputElement | HTMLSelectElement> = new Map();
+  private inputs: Map<string, HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement> = new Map();
   isOpen = false;
 
   constructor() {
@@ -2288,6 +2376,21 @@ class WysiwygFormModal {
         wrap.appendChild(textInp);
         row.appendChild(wrap);
         this.inputs.set(field.key, textInp);
+        container.appendChild(row);
+        continue;
+      }
+
+      if (field.type === 'textarea') {
+        const ta = document.createElement('textarea');
+        ta.className = 'be-field__textarea';
+        ta.rows = field.rows ?? 6;
+        if (field.placeholder) ta.placeholder = field.placeholder;
+        if (field.value) ta.value = field.value;
+        ta.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') { e.preventDefault(); this.close(); }
+        });
+        this.inputs.set(field.key, ta);
+        row.appendChild(ta);
         container.appendChild(row);
         continue;
       }
@@ -2659,7 +2762,7 @@ const icn = {
   unlink:       S('<path d="M18.84 12.25l1.72-1.71a5 5 0 00-7.07-7.07L11.78 5.18M5.16 11.75L3.44 13.46a5 5 0 007.07 7.07l1.71-1.71"/><line x1="1" y1="1" x2="23" y2="23"/>'),
   anchor:       S('<circle cx="12" cy="5" r="3"/><line x1="12" y1="8" x2="12" y2="21"/><path d="M5 12l7 9 7-9"/>'),
   bold:         F('<path d="M6 4h8a4 4 0 014 4 4 4 0 01-4 4H6z"/><path d="M6 12h9a4 4 0 014 4 4 4 0 01-4 4H6z"/>'),
-  italic:       F('<path d="M19 4H10M14 20H5M15 4L9 20"/>'),
+  italic:       S('<path d="M19 4H10M14 20H5M15 4L9 20"/>'),
   underline:    S('<path d="M6 3v7a6 6 0 006 6 6 6 0 006-6V3"/><line x1="4" y1="21" x2="20" y2="21"/>'),
   strike:       S('<path d="M17.3 12H6.7C5.2 12 4 10.9 4 9.5S5.2 7 6.7 7h1.6"/><path d="M6.7 12h10.6c1.5 0 2.7 1.1 2.7 2.5S18.8 17 17.3 17h-1.6"/><line x1="4" y1="12" x2="20" y2="12"/>'),
   sub:          `<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M4 5l8 8M12 5L4 13"/><path d="M20 21h-4c0-1.5.44-2 1.5-2.5S20 18 20 16.5a1.5 1.5 0 00-3 0"/></svg>`,

@@ -23,6 +23,27 @@
       box-shadow: 0 0 0 2px rgba(79, 70, 229, .08);
     }
   }
+
+  &__textarea {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid color-mix(in srgb, var(--be-border) 70%, transparent);
+    border-radius: calc(var(--be-radius) - 1px);
+    background: var(--be-surface);
+    color: var(--be-text);
+    font-size: 11px;
+    font-family: var(--be-font-mono);
+    line-height: 1.6;
+    resize: vertical;
+    box-sizing: border-box;
+    transition: border-color var(--be-transition), box-shadow var(--be-transition);
+
+    &:focus {
+      outline: none;
+      border-color: color-mix(in srgb, var(--be-primary) 60%, transparent);
+      box-shadow: 0 0 0 2px rgba(79, 70, 229, .08);
+    }
+  }
 }
 
 // ─── Table toolbar ────────────────────────────────────────────────────────────
@@ -343,12 +364,29 @@
     background: var(--be-bg);
     border-top: 1px solid var(--be-border);
     min-height: 24px;
+    position: relative;
+  }
+  &__resize-grip {
+    position: absolute;
+    bottom: 2px;
+    right: 4px;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: ns-resize;
+    color: var(--be-text-muted);
+    opacity: 0.4;
+    transition: opacity var(--be-transition);
+    &:hover { opacity: 1; }
   }
   &__wordcount {
     font-size: 11px;
     color: var(--be-text-muted);
     font-family: var(--be-font);
     user-select: none;
+    margin-right: 20px;
   }
 
   &--embedded {
@@ -569,7 +607,7 @@
 
   // ── Editing area ────────────────────────────────────────────────────────────
   &__editor {
-    flex: 1; padding: 24px 32px; overflow-y: auto;
+    flex: 1; padding: 10px; overflow-y: auto;
     outline: none; font-family: var(--be-font); font-size: 15px; line-height: 1.7;
     color: var(--be-text); background: var(--be-bg);
 
@@ -661,6 +699,9 @@
     position: relative;
     overflow: hidden;
     background: #1e1e2e;
+    text-shadow: none !important;
+    -webkit-text-stroke: 0 !important;
+    filter: none !important;
   }
 
   // Métriques partagées pre + textarea — doivent être identiques pour l'alignement
@@ -668,7 +709,7 @@
     font-family: var(--be-font-mono);
     font-size: 13px;
     line-height: 1.7;
-    padding: 20px 24px;
+    padding: 10px;
     tab-size: 2;
     white-space: pre-wrap;
     overflow-wrap: break-word;
@@ -679,6 +720,11 @@
     box-sizing: border-box;
     width: 100%;
     min-height: 100%;
+    letter-spacing: 0;
+    text-shadow: none !important;
+    -webkit-text-stroke: 0 !important;
+    filter: none !important;
+    word-spacing: 0;
   }
 
   // <pre> de coloration — pointer-events:none, en dessous du textarea
@@ -723,7 +769,7 @@
 
   // ── Élément survolé — cadre ────────────────────────────────────────────────
   &__editor .be-elem-hover {
-    outline: 2px solid rgba(79, 70, 229, .55) !important;
+    outline: 1px solid rgba(79, 70, 229, .55) !important;
     outline-offset: 2px;
   }
 }
