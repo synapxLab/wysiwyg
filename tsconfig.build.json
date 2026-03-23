@@ -9,5 +9,6 @@
     "noUnusedParameters": false,
     "moduleResolution": "node"
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/main.ts"]
 }
