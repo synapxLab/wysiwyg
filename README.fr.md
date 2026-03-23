@@ -59,6 +59,8 @@ new WysiwygEditor({
     grid:         true,   // Grille flexbox multi-colonnes
     twig:         false,  // Panneau de snippets Twig (opt-in)
     mermaid:      false,  // Diagrammes Mermaid (opt-in — nécessite opts.mermaid)
+    math:         false,  // Formules mathématiques KaTeX (opt-in — nécessite opts.katex)
+    excalidraw:   false,  // Dessins Excalidraw (opt-in — nécessite opts.excalidraw)
     table:        true,   // Tableau avec fusion/scission de cellules
     hr:           true,
     codeBlock:    true,   // Bloc <pre><code>
@@ -93,6 +95,15 @@ new WysiwygEditor({
   // Instance Mermaid (v10+) pour le rendu de diagrammes — zéro impact bundle
   // Activer le bouton avec toolbar: { mermaid: true }
   mermaid: instanceMermaid,
+
+  // Instance KaTeX pour le rendu de formules mathématiques — zéro impact bundle
+  // Activer le bouton avec toolbar: { math: true }
+  // Le CSS KaTeX doit être chargé séparément dans la page
+  katex: instanceKatex,
+
+  // Dépendances Excalidraw pour le dessin libre — zéro impact bundle
+  // Activer le bouton avec toolbar: { excalidraw: true }
+  excalidraw: { Excalidraw, exportToSvg, React, ReactDOM },
 
   // Obsolète — utilisez toolbar: { source: false } à la place
   hideSource: false,
@@ -165,6 +176,54 @@ new WysiwygEditor({
 - Cliquez un diagramme existant → rouvre la modale avec le code pré-rempli
 - Le diagramme est stocké sous `<div class="be-mermaid" data-mermaid-code="...">SVG</div>`
 - Les erreurs s'affichent directement dans la modale (message Mermaid exact, pas d'alert bloquant)
+
+---
+
+## Formules mathématiques — KaTeX (opt-in)
+
+Rendez des formules LaTeX grâce à [KaTeX](https://katex.org/) — zéro impact sur le bundle puisque vous injectez votre propre instance.
+
+```ts
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
+
+new WysiwygEditor({
+  katex,
+  toolbar: { math: true },
+});
+```
+
+- Cliquez le bouton Σ → saisissez la formule LaTeX (ex. `\frac{a}{b}`)
+- Les délimiteurs `$$...$$` ou `$...$` sont retirés automatiquement
+- **Mode bloc** (centré) ou **mode inline** (dans le texte) — sélectionnable dans la modale
+- Cliquez une formule existante → rouvre la modale avec le code pré-rempli
+- Stocké sous `<div|span class="be-math" data-math-code="..." data-math-display="1|0">`
+- Les erreurs de syntaxe KaTeX s'affichent dans la modale
+
+---
+
+## Dessins Excalidraw (opt-in)
+
+Insérez des dessins libres grâce à [Excalidraw](https://excalidraw.com/) — React et ReactDOM doivent être fournis car Excalidraw est un composant React.
+
+```ts
+import { Excalidraw, exportToSvg } from '@excalidraw/excalidraw';
+import '@excalidraw/excalidraw/index.css';
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+
+new WysiwygEditor({
+  excalidraw: { Excalidraw, exportToSvg, React, ReactDOM },
+  toolbar: { excalidraw: true },
+});
+```
+
+- Cliquez le bouton crayon → modale centrée (1100 × 80 vh) avec le canvas Excalidraw
+- Cliquez en dehors ou sur *Annuler* pour fermer
+- Cliquez *Insérer* → le dessin est sauvegardé en SVG embarqué
+- Cliquez un dessin existant → rouvre la modale avec les éléments pré-chargés
+- Stocké sous `<div class="be-excalidraw" data-excalidraw-state="...">SVG</div>`
+- Menu hamburger (Ouvrir/Enregistrer/Exporter) et panneau Library masqués — inutiles dans ce contexte
 
 ---
 
@@ -249,7 +308,7 @@ Utilise `contenteditable`, les API `Selection` / `Range`, et `CSS color-mix()`.
 
 ## Licence
 
-MIT — © SynapxLab
+MIT — © SynapxLab Adliss
 
 ---
 
@@ -261,6 +320,8 @@ Points forts à mentionner :
 - Zéro dépendance runtime (pas de React, pas de Vue, pas de jQuery)
 - TypeScript complet avec déclarations de types
 - Support des diagrammes Mermaid (opt-in, zéro impact bundle)
+- Support des formules mathématiques KaTeX (opt-in, zéro impact bundle)
+- Support des dessins Excalidraw (opt-in, zéro impact bundle)
 - Glisser-déposer d'images depuis le navigateur ou le bureau
 - Inspecteur d'éléments avec édition CSS brut
 - Éditeur source HTML avec coloration syntaxique

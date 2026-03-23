@@ -376,5 +376,116 @@ export const ICONS = {
   strike:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17.3 12H6.7C5.2 12 4 10.9 4 9.5S5.2 7 6.7 7h1.6"/><path d="M6.7 12h10.6c1.5 0 2.7 1.1 2.7 2.5S18.8 17 17.3 17h-1.6"/><line x1="4" y1="12" x2="20" y2="12"/></svg>`,
 };
 
+// ─── HTML table → TableProps parser (used by applyHtml on load) ───────────────
+
+export function parseHtmlTableToState(table: HTMLTableElement): TableProps {
+  const st = table.style;
+  const width = st.width || '100%';
+  const height = st.height || '';
+  const textAlign = st.textAlign || 'left';
+  const cellSpacing = st.borderSpacing ? parseInt(st.borderSpacing) || 0 : 0;
+
+  const captionEl = table.querySelector('caption');
+  const caption = captionEl ? captionEl.textContent || '' : '';
+
+  const numRows = table.rows.length;
+  if (numRows === 0) {
+    return {
+      rows: 0, cols: 0, width, height, headerType: 'none',
+      borderSize: 1, cellSpacing, cellPadding: 8,
+      textAlign, caption, ariaDescription: '',
+      cells: [],
+    };
+  }
+
+  // Nombre de colonnes réel (en tenant compte des colspans)
+  let numCols = 0;
+  for (let r = 0; r < numRows; r++) {
+    let rowCols = 0;
+    for (let ci = 0; ci < table.rows[r].cells.length; ci++) {
+      rowCols += table.rows[r].cells[ci].colSpan || 1;
+    }
+    numCols = Math.max(numCols, rowCols);
+  }
+
+  let borderSize = 1;
+  let cellPadding = 8;
+
+  // Grille pour gérer rowspan/colspan
+  const grid: (CellData | null)[][] = Array.from({ length: numRows }, () => Array(numCols).fill(null));
+
+  for (let r = 0; r < numRows; r++) {
+    const row = table.rows[r];
+    let gridC = 0;
+    for (let ci = 0; ci < row.cells.length; ci++) {
+      while (gridC < numCols && grid[r][gridC] !== null) gridC++;
+      if (gridC >= numCols) break;
+
+      const cell = row.cells[ci];
+      const colspan = cell.colSpan || 1;
+      const rowspan = cell.rowSpan || 1;
+      const cst = cell.style;
+
+      const padMatch = cst.padding?.match(/(\d+)/);
+      if (padMatch) cellPadding = parseInt(padMatch[1]);
+
+      const borderMatch = cst.border?.match(/^(\d+)px/);
+      if (borderMatch) borderSize = parseInt(borderMatch[1]);
+
+      const borderColorMatch = cst.border?.match(/#[0-9a-fA-F]{3,6}/);
+
+      const cd: CellData = {
+        content: cell.innerHTML,
+        type: cell.tagName.toLowerCase() as 'td' | 'th',
+        width: cst.width || '',
+        height: cst.height || '',
+        colspan,
+        rowspan,
+        textWrap: cst.whiteSpace !== 'nowrap',
+        textAlign: cst.textAlign || '',
+        verticalAlign: cst.verticalAlign || '',
+        backgroundColor: cst.background || cst.backgroundColor || '',
+        borderColor: borderColorMatch ? borderColorMatch[0] : '',
+        _hidden: false,
+      };
+
+      grid[r][gridC] = cd;
+
+      // Marquer les cellules couvertes par colspan/rowspan
+      for (let dr = 0; dr < rowspan; dr++) {
+        for (let dc = 0; dc < colspan; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const rr = r + dr; const cc = gridC + dc;
+          if (rr < numRows && cc < numCols) {
+            grid[rr][cc] = { ...blankCell('td'), _hidden: true };
+          }
+        }
+      }
+      gridC += colspan;
+    }
+  }
+
+  // Remplir les cellules restantes vides
+  const cells: CellData[][] = grid.map((row, r) =>
+    row.map((cd, c) => cd ?? blankCell(inferType(r, c, 'none'))),
+  );
+
+  // Détecter le type d'en-têtes
+  const allFirstRowTh = numCols > 0 && cells[0].every(cd => cd.type === 'th' && !cd._hidden);
+  const allFirstColTh = numRows > 0 && cells.every(row => row[0]?.type === 'th');
+  let headerType: TableProps['headerType'] = 'none';
+  if (allFirstRowTh && allFirstColTh) headerType = 'both';
+  else if (allFirstRowTh) headerType = 'first-row';
+  else if (allFirstColTh) headerType = 'first-col';
+
+  return {
+    rows: numRows, cols: numCols, width, height,
+    headerType, borderSize, cellSpacing, cellPadding,
+    textAlign, caption,
+    ariaDescription: table.getAttribute('aria-describedby') || '',
+    cells,
+  };
+}
+
 // ─── mkBtn/mkSep re-exports for WysiwygTable inline use ──────────────────────
 export { mkBtn as _mkBtn, mkSep as _mkSep };

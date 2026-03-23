@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] — 2026-03-23
+
+### Added
+- **KaTeX math formulas (opt-in)** — inject a KaTeX instance via `opts.katex`, enable button with `toolbar: { math: true }`. Supports display mode (`$$...$$`) and inline mode (`$...$`). Delimiter stripping is automatic. Click formula to re-edit. Rendered as `<div|span class="be-math" data-math-code="...">`.
+- **Excalidraw drawings (opt-in)** — inject `{ Excalidraw, exportToSvg, React, ReactDOM }` via `opts.excalidraw`, enable button with `toolbar: { excalidraw: true }`. Opens a centered modal (1100 × 80 vh) with the Excalidraw canvas. Drawing saved as embedded SVG + JSON state in `data-excalidraw-state`. Click drawing to re-edit. Hamburger menu and Library sidebar hidden inside the modal.
+
+### Fixed
+- **Table properties on template load** — `setValue()` / `applyHtml()` now converts plain `<table>` elements into full `WysiwygTable` widgets (with toolbar and property modal) via new `parseHtmlTableToState()` parser. Previously, table properties were only accessible after manual insertion, not after loading a template.
+- **Table toolbar duplicate buttons** — Bold, Italic, Underline, Strikethrough buttons removed from the per-table toolbar (already present in the main toolbar).
+- **Excalidraw insertion reliability** — `editorEl.focus()` forced before `restoreRange()` + fallback `Range.insertNode()` when `execCommand('insertHTML')` returns false (React steals focus during drawing session).
+
+### Changed
+- **Icons corrected** — Strikethrough (was ambiguous S-curves, now standard text-with-line icon), Select All (was X-in-dashed-box, now checkmark-in-dashed-box), Math (was EKG wave, now Σ sigma symbol).
+
+---
+
 ## [1.2.1] — 2026-03-21
 
 ### Added

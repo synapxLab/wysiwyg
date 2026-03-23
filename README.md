@@ -61,6 +61,8 @@ new WysiwygEditor({
     grid:         true,   // Multi-column flexbox layout picker
     twig:         false,  // Twig snippets panel (opt-in)
     mermaid:      false,  // Mermaid diagrams (opt-in — requires opts.mermaid)
+    math:         false,  // Math formulas KaTeX (opt-in — requires opts.katex)
+    excalidraw:   false,  // Excalidraw drawings (opt-in — requires opts.excalidraw)
     table:        true,   // Table with merge/split
     hr:           true,
     codeBlock:    true,   // <pre><code> block
@@ -95,6 +97,15 @@ new WysiwygEditor({
   // Mermaid instance (v10+) for diagram rendering — zero bundle impact
   // Enable the toolbar button with toolbar: { mermaid: true }
   mermaid: mermaidInstance,
+
+  // KaTeX instance for math formula rendering — zero bundle impact
+  // Enable the toolbar button with toolbar: { math: true }
+  // KaTeX CSS must be loaded separately in the page
+  katex: katexInstance,
+
+  // Excalidraw dependencies for freehand drawing — zero bundle impact
+  // Enable the toolbar button with toolbar: { excalidraw: true }
+  excalidraw: { Excalidraw, exportToSvg, React, ReactDOM },
 
   // Deprecated — use toolbar: { source: false } instead
   hideSource: false,
@@ -167,6 +178,54 @@ new WysiwygEditor({
 - Click an existing diagram in the editor → re-opens the modal with the code pre-filled
 - Diagram is stored as `<div class="be-mermaid" data-mermaid-code="...">SVG</div>`
 - Errors are displayed inline in the modal (not as a blocking alert)
+
+---
+
+## Math formulas — KaTeX (opt-in)
+
+Render LaTeX math formulas using [KaTeX](https://katex.org/) — zero bundle impact since you inject your own instance.
+
+```ts
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
+
+new WysiwygEditor({
+  katex,
+  toolbar: { math: true },
+});
+```
+
+- Click the Σ button → enter LaTeX formula (e.g. `\frac{a}{b}`)
+- Delimiter stripping: `$$...$$` or `$...$` wrappers are removed automatically
+- **Display mode** (block, centered) or **Inline mode** (in-text)
+- Click an existing formula → re-opens the modal with the code pre-filled
+- Formula stored as `<div|span class="be-math" data-math-code="..." data-math-display="1|0">`
+- Syntax errors are displayed inline in the modal
+
+---
+
+## Excalidraw drawings (opt-in)
+
+Insert freehand drawings using [Excalidraw](https://excalidraw.com/) — React and ReactDOM must be provided since Excalidraw is a React component.
+
+```ts
+import { Excalidraw, exportToSvg } from '@excalidraw/excalidraw';
+import '@excalidraw/excalidraw/index.css';
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+
+new WysiwygEditor({
+  excalidraw: { Excalidraw, exportToSvg, React, ReactDOM },
+  toolbar: { excalidraw: true },
+});
+```
+
+- Click the pencil button → centered modal (1100 × 80 vh) with the Excalidraw canvas
+- Click outside the modal or *Cancel* to dismiss
+- Click *Insert* → drawing saved as embedded SVG
+- Click an existing drawing → re-opens with the saved elements pre-loaded
+- Drawing stored as `<div class="be-excalidraw" data-excalidraw-state="...">SVG</div>`
+- Hamburger menu (Open/Save/Export) and Library panel hidden — not relevant in editor context
 
 ---
 
@@ -251,7 +310,7 @@ Uses `contenteditable`, `Selection` / `Range` APIs, `CSS color-mix()`.
 
 ## License
 
-MIT — © SynapxLab
+MIT — © SynapxLab Adliss
 
 ---
 
@@ -265,6 +324,8 @@ Key strengths to mention:
 - Zero runtime dependencies (no React, no Vue, no jQuery)
 - Full TypeScript with type declarations
 - Mermaid diagram support (opt-in, zero bundle impact)
+- KaTeX math formula support (opt-in, zero bundle impact)
+- Excalidraw freehand drawing support (opt-in, zero bundle impact)
 - Drag & drop images from browser or desktop
 - Element inspector with raw CSS editing
 - Source HTML editor with syntax highlighting

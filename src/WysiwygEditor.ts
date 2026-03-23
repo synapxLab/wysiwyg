@@ -8,6 +8,7 @@ import {
   mergeRight, mergeDown, splitH, splitV,
   buildTablePropsPanel,
   TablePropsModal,
+  parseHtmlTableToState,
   ICONS as TBL,
 } from './table';
 import { pushModal, popModal, installEscapeHandler } from './modalStack';
@@ -98,6 +99,10 @@ export interface WysiwygToolbarConfig {
   formatHtml?: boolean;
   /** Bouton diagramme Mermaid (défaut: false — nécessite opts.mermaid) */
   mermaid?: boolean;
+  /** Bouton formule mathématique KaTeX (défaut: false — nécessite opts.katex) */
+  math?: boolean;
+  /** Bouton dessin Excalidraw (défaut: false — nécessite opts.excalidraw) */
+  excalidraw?: boolean;
 }
 
 export interface WysiwygOptions {
@@ -142,6 +147,38 @@ export interface WysiwygOptions {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mermaid?: any;
+  /**
+   * Instance KaTeX pour le rendu de formules mathématiques LaTeX.
+   * Permet d'injecter KaTeX sans l'embarquer dans le bundle.
+   * Le CSS KaTeX doit être chargé séparément dans la page.
+   *
+   * @example
+   * import katex from 'katex';
+   * import 'katex/dist/katex.min.css';
+   * new WysiwygEditor({ katex, toolbar: { math: true } })
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  katex?: any;
+  /**
+   * Dépendances Excalidraw pour le dessin libre.
+   * React et ReactDOM doivent être fournis car Excalidraw est un composant React.
+   *
+   * @example
+   * import { Excalidraw, exportToSvg } from '@excalidraw/excalidraw';
+   * import React from 'react';
+   * import ReactDOM from 'react-dom/client';
+   * new WysiwygEditor({ excalidraw: { Excalidraw, exportToSvg, React, ReactDOM } })
+   */
+  excalidraw?: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Excalidraw: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    exportToSvg: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    React: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ReactDOM: any;
+  };
 }
 
 export class WysiwygEditor {
@@ -185,6 +222,8 @@ export class WysiwygEditor {
     this.setupImageResize();
     this.setupClickOutside();
     this.setupMermaidClickHandler();
+    this.setupMathClickHandler();
+    this.setupExcalidrawClickHandler();
     this.setupElementInspector();
   }
 
@@ -276,6 +315,19 @@ export class WysiwygEditor {
 
   private applyHtml(html: string): void {
     this.editorEl.innerHTML = html;
+    // Convertir les <table> bruts (ex: chargés depuis un template) en WysiwygTable
+    this.editorEl.querySelectorAll<HTMLTableElement>('table').forEach(table => {
+      if (table.closest('.be-wysiwyg-table-widget')) return;
+      const state = parseHtmlTableToState(table);
+      const widget = new WysiwygTable({ state });
+      // Si le <table> est le seul enfant d'un <div> wrapper (sortie de renderTableHtml), remplacer le div
+      const parent = table.parentElement;
+      if (parent && parent !== this.editorEl && parent.tagName === 'DIV' && parent.children.length === 1) {
+        parent.replaceWith(widget.el);
+      } else {
+        table.replaceWith(widget.el);
+      }
+    });
   }
 
   // ── Paste ──────────────────────────────────────────────────────────────────
@@ -754,6 +806,208 @@ export class WysiwygEditor {
         e.preventDefault();
         e.stopPropagation();
         this.insertMermaid(target);
+      }
+    });
+  }
+
+  // ── Math (KaTeX) ─────────────────────────────────────────────────────────────
+
+  private insertMath(existingEl?: HTMLElement): void {
+    if (!this.opts.katex) return;
+    const existingCode = existingEl?.getAttribute('data-math-code') ?? '';
+    const isDisplay = !existingEl || existingEl.getAttribute('data-math-display') === '1';
+    this.saveRange();
+    this.formModal.show({
+      title: 'Formule mathématique (LaTeX)',
+      submitLabel: existingEl ? 'Mettre à jour' : 'Insérer',
+      fields: [
+        {
+          key: 'formula',
+          label: 'Formule LaTeX',
+          type: 'textarea',
+          rows: 6,
+          value: existingCode,
+          placeholder: '\\frac{a}{b} + \\sqrt{x^2 + y^2}',
+        },
+        {
+          key: 'display',
+          label: 'Mode',
+          type: 'select',
+          value: isDisplay ? '1' : '0',
+          options: [
+            { value: '1', label: 'Bloc ($$...$$)' },
+            { value: '0', label: 'Inline ($...$)' },
+          ],
+        },
+      ],
+      onSubmit: (v) => {
+        // Retirer les délimiteurs $$ ... $$ ou $ ... $ si l'utilisateur les a inclus
+        const raw = v.formula?.trim() ?? '';
+        const code = raw.replace(/^\$\$?\s*/, '').replace(/\s*\$\$?$/, '').trim();
+        if (!code) return;
+        const display = v.display !== '0';
+        try {
+          const rendered = this.opts.katex.renderToString(code, {
+            displayMode: display,
+            throwOnError: true,
+            output: 'html',
+          });
+          const esc = (s: string) => s.replace(/"/g, '&quot;').replace(/\n/g, '&#10;');
+          const tag = display ? 'div' : 'span';
+          const block = `<${tag} class="be-math" data-math-code="${esc(code)}" data-math-display="${display ? '1' : '0'}" contenteditable="false">${rendered}</${tag}>`;
+          if (existingEl) {
+            existingEl.outerHTML = block;
+          } else {
+            this.restoreRange();
+            document.execCommand('insertHTML', false, block);
+          }
+          this.onChange?.();
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error('[wysiwyg] KaTeX render error:', err);
+          this.formModal.showError(`Erreur KaTeX : ${msg}`);
+        }
+      },
+    });
+  }
+
+  // ── Excalidraw ───────────────────────────────────────────────────────────────
+
+  private insertExcalidraw(existingEl?: HTMLElement): void {
+    if (!this.opts.excalidraw) return;
+    const { Excalidraw, exportToSvg, React, ReactDOM } = this.opts.excalidraw;
+
+    this.saveRange();
+
+    let initialData: Record<string, unknown> | undefined;
+    if (existingEl) {
+      try {
+        const s = existingEl.getAttribute('data-excalidraw-state');
+        if (s) initialData = JSON.parse(s);
+      } catch { /* état invalide, on repart de zéro */ }
+    }
+
+    // Modale Excalidraw
+    const overlay = document.createElement('div');
+    overlay.className = 'be-excalidraw-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'be-excalidraw-overlay__dialog';
+
+    const header = document.createElement('div');
+    header.className = 'be-excalidraw-overlay__header';
+
+    const titleEl = document.createElement('span');
+    titleEl.className = 'be-excalidraw-overlay__title';
+    titleEl.textContent = 'Dessin — Excalidraw';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'be-form-modal__btn be-form-modal__btn--cancel';
+    cancelBtn.textContent = 'Annuler';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'be-form-modal__btn be-form-modal__btn--submit';
+    saveBtn.textContent = existingEl ? 'Mettre à jour' : 'Insérer';
+
+    header.appendChild(titleEl);
+    header.appendChild(cancelBtn);
+    header.appendChild(saveBtn);
+
+    const canvas = document.createElement('div');
+    canvas.className = 'be-excalidraw-overlay__canvas';
+
+    dialog.appendChild(header);
+    dialog.appendChild(canvas);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    // Clic sur le backdrop pour fermer
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let excalidrawAPI: any = null;
+    const root = ReactDOM.createRoot(canvas);
+    root.render(
+      React.createElement(Excalidraw, {
+        initialData: initialData ?? undefined,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        excalidrawAPI: (api: any) => { excalidrawAPI = api; },
+      }),
+    );
+
+    const close = (): void => { root.unmount(); overlay.remove(); };
+
+    cancelBtn.addEventListener('click', close);
+
+    saveBtn.addEventListener('click', async () => {
+      if (!excalidrawAPI) { close(); return; }
+      const elements = excalidrawAPI.getSceneElements();
+      if (!elements.length) { close(); return; }
+      try {
+        const appState = excalidrawAPI.getAppState();
+        const files = excalidrawAPI.getFiles();
+        const svgEl = await exportToSvg({
+          elements,
+          appState: { ...appState, exportBackground: true, exportWithDarkMode: false },
+          files,
+        });
+        const svgStr = new XMLSerializer().serializeToString(svgEl);
+        const state = JSON.stringify({
+          elements,
+          appState: { viewBackgroundColor: appState.viewBackgroundColor },
+        });
+        const escAttr = (s: string) => s.replace(/"/g, '&quot;');
+        const block = `<div class="be-excalidraw" data-excalidraw-state="${escAttr(state)}" contenteditable="false">${svgStr}</div>`;
+        if (existingEl) {
+          existingEl.outerHTML = block;
+        } else {
+          // Focus obligatoire avant restoreRange pour que execCommand fonctionne
+          this.editorEl.focus();
+          this.restoreRange();
+          const inserted = document.execCommand('insertHTML', false, block);
+          // Fallback si execCommand échoue (focus/range perdu) : on insère directement
+          if (!inserted) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = block;
+            const node = tmp.firstElementChild!;
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount) {
+              const range = sel.getRangeAt(0);
+              range.collapse(false);
+              range.insertNode(node);
+            } else {
+              this.editorEl.appendChild(node);
+            }
+          }
+        }
+        this.onChange?.();
+        close();
+      } catch (err: unknown) {
+        console.error('[wysiwyg] Excalidraw export error:', err);
+      }
+    });
+  }
+
+  private setupExcalidrawClickHandler(): void {
+    this.editorEl.addEventListener('click', (e) => {
+      const target = (e.target as HTMLElement).closest('.be-excalidraw') as HTMLElement | null;
+      if (target) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.insertExcalidraw(target);
+      }
+    });
+  }
+
+  private setupMathClickHandler(): void {
+    this.editorEl.addEventListener('click', (e) => {
+      const target = (e.target as HTMLElement).closest('.be-math') as HTMLElement | null;
+      if (target) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.insertMath(target);
       }
     });
   }
@@ -1918,6 +2172,10 @@ export class WysiwygEditor {
       s1.push(this.makeBtn(icn.pasteClean, 'Nettoyer le contenu (supprime styles et classes)', () => this.cleanContent()));
     if (this.opts.mermaid && this.show('mermaid', false))
       s1.push(this.makeBtn(icn.mermaid, 'Insérer un diagramme Mermaid', () => this.insertMermaid()));
+    if (this.opts.katex && this.show('math', false))
+      s1.push(this.makeBtn(icn.math, 'Insérer une formule mathématique', () => this.insertMath()));
+    if (this.opts.excalidraw && this.show('excalidraw', false))
+      s1.push(this.makeBtn(icn.excalidraw, 'Insérer un dessin Excalidraw', () => this.insertExcalidraw()));
     if (s1.length) sections.push(s1);
 
     // ── 2 · Listes ────────────────────────────────────────────────────────────
@@ -2045,7 +2303,7 @@ export class WysiwygEditor {
 
     const brand = document.createElement('span');
     brand.className = 'be-wysiwyg__brand';
-    brand.textContent = `@synapxlab/wysiwyg v${__PKG_VERSION__}`;
+    brand.textContent = `Adliss.fr v${__PKG_VERSION__}`;
     this.statusBarEl.appendChild(brand);
 
     this.wordCountEl = document.createElement('span');
@@ -2785,12 +3043,6 @@ class WysiwygTable {
       this.modalMode = 'cell'; this.modal.setTitle(has ? `Cellule L${this.selR + 1} · C${this.selC + 1} — Propriétés` : 'Propriétés de la cellule'); this.buildPropsPanel();
       if (!this.modal.isOpen) this.modal.open();
     }, !has));
-    this.toolbarEl.appendChild(sep());
-    this.toolbarEl.appendChild(btn(TBL.bold,      'Gras',    () => document.execCommand('bold',          false)));
-    this.toolbarEl.appendChild(btn(TBL.italic,    'Italique',() => document.execCommand('italic',        false)));
-    this.toolbarEl.appendChild(btn(TBL.underline, 'Souligné',() => document.execCommand('underline',     false)));
-    this.toolbarEl.appendChild(btn(TBL.strike,    'Barré',   () => document.execCommand('strikeThrough', false)));
-
     if (has) {
       const info = document.createElement('span');
       info.className = 'be-table-toolbar__info';
@@ -2854,7 +3106,7 @@ const F = (d: string) => `<svg viewBox="0 0 24 24" fill="currentColor" width="14
 const icn = {
   source:       S('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'),
   pageBreak:    S('<line x1="2" y1="12" x2="22" y2="12" stroke-dasharray="4 2"/><polyline points="8 8 12 12 16 8"/><polyline points="8 16 12 12 16 16"/>'),
-  selectAll:    S('<rect x="2" y="2" width="20" height="20" rx="2" stroke-dasharray="4 2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/>'),
+  selectAll:    S('<rect x="2" y="2" width="20" height="20" rx="2" stroke-dasharray="4 2"/><polyline points="7 13 10 16 17 9"/>'),
   removeFormat: S('<line x1="6" y1="18" x2="18" y2="6"/><path d="M6 6h8M10 6v12"/>'),
   ol:           S('<line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><path d="M4 6h1v4"/><path d="M4 10h2"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/>'),
   ul:           S('<line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1" fill="currentColor"/><circle cx="4" cy="12" r="1" fill="currentColor"/><circle cx="4" cy="18" r="1" fill="currentColor"/>'),
@@ -2878,6 +3130,8 @@ const icn = {
   compress:     S('<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>'),
   formatHtml:   S('<line x1="21" y1="10" x2="7" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="7" y2="18"/>'),
   mermaid:      S('<rect x="3" y="3" width="7" height="5" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="8" y="16" width="8" height="5" rx="1"/><line x1="6.5" y1="8" x2="6.5" y2="12"/><line x1="17.5" y1="8" x2="17.5" y2="12"/><line x1="6.5" y1="12" x2="12" y2="12"/><line x1="17.5" y1="12" x2="12" y2="12"/><line x1="12" y1="12" x2="12" y2="16"/>'),
+  math:         S('<path d="M18 4H6l6 8-6 8h12"/>'),
+  excalidraw:   S('<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>'),
   specialChar:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 3C8 3 5 7 5 12s3 9 7 9 7-4 7-9"/><path d="M16 8l-2 4h4l-2 4"/></svg>`,
   image:        S('<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>'),
   link:         S('<path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>'),
@@ -2886,7 +3140,7 @@ const icn = {
   bold:         F('<path d="M6 4h8a4 4 0 014 4 4 4 0 01-4 4H6z"/><path d="M6 12h9a4 4 0 014 4 4 4 0 01-4 4H6z"/>'),
   italic:       S('<path d="M19 4H10M14 20H5M15 4L9 20"/>'),
   underline:    S('<path d="M6 3v7a6 6 0 006 6 6 6 0 006-6V3"/><line x1="4" y1="21" x2="20" y2="21"/>'),
-  strike:       S('<path d="M17.3 12H6.7C5.2 12 4 10.9 4 9.5S5.2 7 6.7 7h1.6"/><path d="M6.7 12h10.6c1.5 0 2.7 1.1 2.7 2.5S18.8 17 17.3 17h-1.6"/><line x1="4" y1="12" x2="20" y2="12"/>'),
+  strike:       S('<path d="M16 4H9a3 3 0 0 0-2.83 4"/><path d="M14 12a4 4 0 0 1 0 8H6"/><line x1="4" y1="12" x2="20" y2="12"/>'),
   sub:          `<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M4 5l8 8M12 5L4 13"/><path d="M20 21h-4c0-1.5.44-2 1.5-2.5S20 18 20 16.5a1.5 1.5 0 00-3 0"/></svg>`,
   sup:          `<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M4 19l8-8M12 19L4 11"/><path d="M20 8h-4c0-1.5.44-2 1.5-2.5S20 5 20 3.5a1.5 1.5 0 00-3 0"/></svg>`,
   textColor:    `<svg viewBox="0 0 24 24" width="14" height="14"><text x="3" y="16" font-size="14" font-weight="bold" font-family="serif" fill="currentColor">A</text><rect x="3" y="18" width="18" height="3" fill="currentColor" rx="1"/></svg>`,

@@ -208,6 +208,59 @@
 
 .be-table-props-modal .be-props-modal__dialog { width: 640px; }
 
+// ── Modale Excalidraw ─────────────────────────────────────────────────────────
+.be-excalidraw-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, .45);
+  padding: 24px;
+  box-sizing: border-box;
+
+  &__dialog {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 1100px;
+    height: 80vh;
+    background: var(--be-bg);
+    border-radius: var(--be-radius-lg, 8px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .25);
+    overflow: hidden;
+  }
+
+  &__header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--be-border);
+    flex-shrink: 0;
+    background: var(--be-bg);
+  }
+
+  &__title {
+    flex: 1;
+    font-weight: 600;
+    font-size: 14px;
+    font-family: var(--be-font);
+    color: var(--be-text);
+  }
+
+  &__canvas {
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  // Masquer le menu hamburger (Open, Save…) et le bouton Library — inutiles dans ce contexte
+  .excalidraw .main-menu-trigger,
+  .excalidraw .default-sidebar-trigger { display: none !important; }
+}
+
 // ─── Form Modal (image / link / anchor) ───────────────────────────────────────
 .be-form-modal {
   &__form {
@@ -839,6 +892,70 @@
     }
     &:hover::after { display: block; }
   }
+
+  // ── Blocs Excalidraw ─────────────────────────────────────────────────────────
+  &__editor .be-excalidraw {
+    display: block;
+    margin: .75em 0;
+    cursor: pointer;
+    border-radius: var(--be-radius);
+    border: 1px solid transparent;
+    transition: border-color var(--be-transition);
+    text-align: center;
+
+    svg { max-width: 100%; height: auto; display: inline-block; }
+
+    &:hover {
+      border-color: var(--be-primary);
+      background: color-mix(in srgb, var(--be-primary) 4%, transparent);
+    }
+
+    &::after {
+      content: '✎ Éditer le dessin';
+      display: none;
+      font-size: 11px;
+      color: var(--be-primary);
+      padding: 3px 0 4px;
+    }
+    &:hover::after { display: block; }
+  }
+
+  // ── Blocs Math (KaTeX) ───────────────────────────────────────────────────────
+  &__editor .be-math {
+    cursor: pointer;
+    border-radius: var(--be-radius);
+    border: 1px solid transparent;
+    transition: border-color var(--be-transition);
+    overflow-x: auto;
+
+    &[data-math-display="1"] {
+      display: block;
+      margin: .75em 0;
+      text-align: center;
+      padding: .5em 0;
+    }
+
+    &[data-math-display="0"] {
+      display: inline-block;
+      vertical-align: middle;
+      padding: 0 2px;
+    }
+
+    &:hover {
+      border-color: var(--be-primary);
+      background: color-mix(in srgb, var(--be-primary) 4%, transparent);
+    }
+
+    &::after {
+      content: '✎ Éditer la formule';
+      display: none;
+      font-size: 11px;
+      color: var(--be-primary);
+      padding: 2px 0 3px;
+    }
+    &[data-math-display="1"]:hover::after { display: block; }
+  }
+
 }
 
 // ─── Barre d'actions — element inspector ──────────────────────────────────────
