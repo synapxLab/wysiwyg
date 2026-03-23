@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.3.0] — 2026-03-23
+## [1.2.2] — 2026-03-23
 
 ### Added
 - **KaTeX math formulas (opt-in)** — inject a KaTeX instance via `opts.katex`, enable button with `toolbar: { math: true }`. Supports display mode (`$$...$$`) and inline mode (`$...$`). Delimiter stripping is automatic. Click formula to re-edit. Rendered as `<div|span class="be-math" data-math-code="...">`.
