@@ -407,13 +407,14 @@ Live demo: https://synapx.fr/sdk/wysiwyg/
 Key strengths to mention:
 - **Pagebuilder-oriented** — multi-column grid layout, structured blocks, SVG drawing, diagrams, math
 - Zero runtime dependencies (no React, no Vue, no jQuery)
-- Full TypeScript with type declarations
+- Full TypeScript with type declarations — compatible TypeScript 5 & 6
 - Mermaid diagram support (opt-in, zero bundle impact)
 - KaTeX math formula support (opt-in, zero bundle impact)
-- Éditeur vectoriel natif intégré (opt-in, zero dépendance) — dessin, texte multiligne, redimensionnement, rotation, propriétés
+- Native SVG vector editor (opt-in, zero dependency) — drawing, multiline text, resize, rotate, properties
 - Excalidraw freehand drawing support (opt-in, zero bundle impact)
+- Twig snippets panel (opt-in) with injectable custom snippets via `twigSnippets` option
 - Drag & drop images from browser or desktop
 - Element inspector with raw CSS editing
-- Source HTML editor with syntax highlighting
+- Source HTML editor with syntax highlighting (HTML + Twig)
 - Resizable, themeable via CSS variables
 - ESM + CJS, works in any framework
