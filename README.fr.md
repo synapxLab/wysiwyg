@@ -110,6 +110,13 @@ new WysiwygEditor({
   // Activer le bouton avec toolbar: { excalidraw: true }
   excalidraw: { Excalidraw, exportToSvg, React, ReactDOM },
 
+  // Snippets Twig personnalisés — injectés dans le panneau Twig après les snippets intégrés
+  // Activer le bouton avec toolbar: { twig: true }
+  twigSnippets: [
+    { cat: 'Mon projet', label: '{{ user.name }}',  code: '{{ user.name }}' },
+    { cat: 'Mon projet', label: '|monFiltre',       code: '{{ valeur|monFiltre }}' },
+  ],
+
   // Obsolète — utilisez toolbar: { source: false } à la place
   hideSource: false,
 })
@@ -367,7 +374,7 @@ Toutes les variables sont scopées à `.be-wysiwyg`. Surchargez-les sur le conte
 Les déclarations de types sont incluses :
 
 ```ts
-import type { WysiwygOptions, WysiwygToolbarConfig } from '@synapxlab/wysiwyg';
+import type { WysiwygOptions, WysiwygToolbarConfig, WysiwygTwigSnippet } from '@synapxlab/wysiwyg';
 ```
 
 ---
