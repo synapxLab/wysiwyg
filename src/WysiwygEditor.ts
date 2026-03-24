@@ -341,6 +341,18 @@ export class WysiwygEditor {
         table.replaceWith(widget.el);
       }
     });
+    // Re-rendre les formules KaTeX (éléments .be-math vides chargés depuis un template)
+    if (this.opts.katex) {
+      this.editorEl.querySelectorAll<HTMLElement>('.be-math').forEach(el => {
+        const raw = el.getAttribute('data-math-code');
+        if (!raw) return;
+        const code = this.sanitizeMathCode(raw);
+        const display = el.getAttribute('data-math-display') !== '0';
+        try {
+          el.innerHTML = this.opts.katex.renderToString(code, { displayMode: display, throwOnError: false });
+        } catch { /* ignore */ }
+      });
+    }
   }
 
   // ── Paste ──────────────────────────────────────────────────────────────────
@@ -824,9 +836,21 @@ export class WysiwygEditor {
 
   // ── Math (KaTeX) ─────────────────────────────────────────────────────────────
 
+  // Répare les caractères de contrôle JS (\n, \t, \f, \r, \v, \b) injectés par erreur
+  // dans data-math-code lorsqu'un template literal JS n'échappait pas les backslashes.
+  private sanitizeMathCode(s: string): string {
+    return s
+      .replace(/\x08/g, '\\b')  // backspace  ← \beta, \bar, \boldsymbol…
+      .replace(/\x09/g, '\\t')  // tab        ← \theta, \times, \tau…
+      .replace(/\x0A/g, '\\n')  // newline    ← \nabla, \nu, \neq…
+      .replace(/\x0B/g, '\\v')  // vtab       ← \varepsilon, \varphi, \vec…
+      .replace(/\x0C/g, '\\f')  // form-feed  ← \frac, \forall…
+      .replace(/\x0D/g, '\\r'); // CR         ← \rho, \rm…
+  }
+
   private insertMath(existingEl?: HTMLElement): void {
     if (!this.opts.katex) return;
-    const existingCode = existingEl?.getAttribute('data-math-code') ?? '';
+    const existingCode = this.sanitizeMathCode(existingEl?.getAttribute('data-math-code') ?? '');
     const isDisplay = !existingEl || existingEl.getAttribute('data-math-display') === '1';
     this.saveRange();
     this.formModal.show({
@@ -862,7 +886,6 @@ export class WysiwygEditor {
           const rendered = this.opts.katex.renderToString(code, {
             displayMode: display,
             throwOnError: true,
-            output: 'html',
           });
           const esc = (s: string) => s.replace(/"/g, '&quot;').replace(/\n/g, '&#10;');
           const tag = display ? 'div' : 'span';
@@ -1015,7 +1038,6 @@ export class WysiwygEditor {
   // ── Draw (éditeur SVG maison) ────────────────────────────────────────────────
 
   private insertDraw(existingEl?: HTMLElement): void {
-    if (!this.opts.draw) return;
     this.saveRange();
     if (!this.drawEditor) {
       this.drawEditor = new WysiwygDrawEditor();
@@ -1902,20 +1924,21 @@ export class WysiwygEditor {
   private insertHtmlBlock(html: string): void {
     this.editorEl.focus();
     this.restoreRange();
-    const inserted = document.execCommand('insertHTML', false, html);
-    if (!inserted) {
-      const tmp = document.createElement('div');
-      tmp.innerHTML = html;
-      const node = tmp.firstElementChild;
-      if (!node) return;
-      const sel = window.getSelection();
-      if (sel?.rangeCount) {
-        const range = sel.getRangeAt(0);
-        range.collapse(false);
-        range.insertNode(node);
-      } else {
-        this.insertBlocksAtRange(node as HTMLElement);
-      }
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    const node = tmp.firstElementChild;
+    if (!node) return;
+    const sel = window.getSelection();
+    if (sel?.rangeCount) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(node);
+      range.setStartAfter(node);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } else {
+      this.insertBlocksAtRange(node as HTMLElement);
     }
   }
 
@@ -2337,7 +2360,7 @@ export class WysiwygEditor {
       s1.push(this.makeBtn(icn.math, 'Insérer une formule mathématique', () => this.insertMath()));
     if (this.opts.excalidraw && this.show('excalidraw', false))
       s1.push(this.makeBtn(icn.excalidraw, 'Insérer un dessin Excalidraw', () => this.insertExcalidraw()));
-    if (this.opts.draw && this.show('draw', false))
+    if (this.show('draw', false))
       s1.push(this.makeBtn(icn.draw, 'Insérer un dessin SVG', () => this.insertDraw()));
     if (s1.length) sections.push(s1);
 

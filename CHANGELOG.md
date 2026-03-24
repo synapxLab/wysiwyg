@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] — 2026-03-24
+
+### Fixed
+- **KaTeX formulas — double insertion** — `insertHtmlBlock()` used `execCommand('insertHTML')` with a DOM fallback; Firefox always returns `false` from `execCommand`, causing both paths to run. Replaced with DOM-only `Range.insertNode()` (reliable on all modern browsers, preserves undo history).
+- **KaTeX formulas — corrupted backslashes** — JS template literals interpret `\f`, `\n`, `\t`, `\r`, `\v`, `\b` as control characters, silently stripping the `\` from LaTeX commands (`\frac` → form-feed + `rac`). Added `sanitizeMathCode()` which reconstructs the original backslash sequences before passing the code to KaTeX. Applied at `applyHtml()` re-render and when reopening an existing formula.
+- **KaTeX formulas — empty elements after `setValue()`** — `applyHtml()` now re-renders all `.be-math` elements that have a `data-math-code` attribute but no rendered content (e.g. templates loaded via `setValue()`).
+
+---
+
 ## [1.3.0] — 2026-03-23
 
 ### Added

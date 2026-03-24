@@ -1007,7 +1007,7 @@ export class WysiwygDrawEditor {
     if (target === this.svg) { this.deselect(); return; }
     let el = target;
     while (el.parentElement && el.parentElement !== (this.svg as unknown as HTMLElement)) {
-      el = el.parentElement as SVGElement;
+      el = el.parentElement as unknown as SVGElement;
     }
     if (!el || el === (this.svg as unknown as SVGElement)) { this.deselect(); return; }
     if ((el as Element).tagName === 'defs') { this.deselect(); return; }
@@ -1109,10 +1109,10 @@ export class WysiwygDrawEditor {
     const commit = () => {
       if (committed) return;
       committed = true;
-      const lines = ta.value.split('\n').map(l => l.trimEnd()).filter((_, i, a) => {
+      const lines = ta.value.split('\n').map((l: string) => l.trimEnd()).filter((_: string, i: number, a: string[]) => {
         // Supprimer uniquement les lignes vides de fin
         if (i < a.length - 1) return true;
-        return l => (l as unknown as string).trim() !== '';
+        return a[i].trim() !== '';
       });
       ta.remove(); this.textInput = undefined;
       if (lines.some(l => l.trim())) {
