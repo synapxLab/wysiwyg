@@ -2,6 +2,7 @@
 // Éditeur WYSIWYG riche (contenteditable).
 
 import type { TableProps } from './table';
+import { WysiwygDrawEditor } from './draw';
 import {
   ensureCells,
   insertRow, deleteRow, insertCol, deleteCol,
@@ -103,6 +104,8 @@ export interface WysiwygToolbarConfig {
   math?: boolean;
   /** Bouton dessin Excalidraw (défaut: false — nécessite opts.excalidraw) */
   excalidraw?: boolean;
+  /** Bouton éditeur SVG maison WysiwygDraw (défaut: false — opt-in) */
+  draw?: boolean;
 }
 
 export interface WysiwygOptions {
@@ -179,6 +182,14 @@ export interface WysiwygOptions {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ReactDOM: any;
   };
+  /**
+   * Active l'éditeur SVG maison WysiwygDraw (zéro dépendance externe).
+   * Afficher le bouton via `toolbar: { draw: true }`.
+   *
+   * @example
+   * new WysiwygEditor({ draw: true, toolbar: { draw: true } })
+   */
+  draw?: boolean;
 }
 
 export class WysiwygEditor {
@@ -206,6 +217,7 @@ export class WysiwygEditor {
   private wordCountEl!: HTMLElement;
   private imgResizerEl: HTMLElement | null = null;
   private resizingImg: HTMLImageElement | null = null;
+  private drawEditor: WysiwygDrawEditor | null = null;
 
   constructor(opts: WysiwygOptions = {}) {
     this.opts = opts;
@@ -224,6 +236,7 @@ export class WysiwygEditor {
     this.setupMermaidClickHandler();
     this.setupMathClickHandler();
     this.setupExcalidrawClickHandler();
+    this.setupDrawClickHandler();
     this.setupElementInspector();
   }
 
@@ -782,8 +795,7 @@ export class WysiwygEditor {
           if (existingEl) {
             existingEl.outerHTML = block;
           } else {
-            this.restoreRange();
-            document.execCommand('insertHTML', false, block);
+            this.insertHtmlBlock(block);
           }
           this.onChange?.();
         } catch (err: unknown) {
@@ -858,8 +870,7 @@ export class WysiwygEditor {
           if (existingEl) {
             existingEl.outerHTML = block;
           } else {
-            this.restoreRange();
-            document.execCommand('insertHTML', false, block);
+            this.insertHtmlBlock(block);
           }
           this.onChange?.();
         } catch (err: unknown) {
@@ -999,6 +1010,119 @@ export class WysiwygEditor {
         this.insertExcalidraw(target);
       }
     });
+  }
+
+  // ── Draw (éditeur SVG maison) ────────────────────────────────────────────────
+
+  private insertDraw(existingEl?: HTMLElement): void {
+    if (!this.opts.draw) return;
+    this.saveRange();
+    if (!this.drawEditor) {
+      this.drawEditor = new WysiwygDrawEditor();
+    }
+    const existingSvg = existingEl ? existingEl.innerHTML : '';
+    this.drawEditor.open(existingSvg, (svgStr) => {
+      const block = `<div class="be-draw" contenteditable="false">${svgStr}</div>`;
+      if (existingEl) {
+        existingEl.outerHTML = block;
+      } else {
+        this.insertHtmlBlock(block);
+      }
+      this.onChange?.();
+    });
+  }
+
+  private setupDrawClickHandler(): void {
+    this.editorEl.addEventListener('click', (e) => {
+      const target = (e.target as HTMLElement).closest('.be-draw') as HTMLElement | null;
+      if (target) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.hideElemToolbar();
+        this.openDrawPropsModal(target);
+      }
+    });
+  }
+
+  private openDrawPropsModal(el: HTMLElement): void {
+    const svg = el.querySelector('svg');
+    const strokeEl = svg?.querySelector('[stroke]:not([stroke="none"])') as Element | null;
+    const currentStroke = strokeEl?.getAttribute('stroke') ?? '#1e293b';
+    const widthEl = svg?.querySelector('[stroke-width]') as Element | null;
+    const currentWidth = String(Math.round(parseFloat(widthEl?.getAttribute('stroke-width') ?? '2')));
+    const fillEl = svg?.querySelector('[fill]:not(text):not([fill="none"]):not([fill="context-stroke"])') as Element | null;
+    const fillVal = fillEl?.getAttribute('fill') ?? 'none';
+    const fillMode = fillVal === '#ffffff' ? 'white' : fillVal === 'none' ? 'none' : 'color';
+    const s = (prop: string) => el.style.getPropertyValue(prop);
+
+    this.formModal.show({
+      title: 'Dessin SVG',
+      submitLabel: 'Appliquer',
+      extraActions: [
+        { label: 'Modifier le dessin', onClick: () => { this.formModal.close(); this.insertDraw(el); } },
+      ],
+      tabs: [
+        { label: 'Couleurs', fields: [
+          { key: 'draw-stroke',       label: 'Couleur des traits',  type: 'color',  value: currentStroke },
+          { key: 'draw-stroke-width', label: 'Épaisseur',           type: 'select', value: currentWidth, options: [
+            { value: '1', label: '1 px' }, { value: '2', label: '2 px' },
+            { value: '3', label: '3 px' }, { value: '5', label: '5 px' },
+          ]},
+          { key: 'draw-fill', label: 'Remplissage des formes', type: 'select', value: fillMode, options: [
+            { value: 'none',  label: 'Transparent' },
+            { value: 'color', label: 'Couleur du trait' },
+            { value: 'white', label: 'Blanc' },
+          ]},
+        ]},
+        { label: 'Style', fields: [
+          { key: 'max-width', label: 'Largeur max', type: 'text', placeholder: '100%',      value: s('max-width') || s('width') },
+          { key: 'float',     label: 'float',       type: 'select', value: s('float'),      options: [{ value: '', label: '— aucun —' }, { value: 'left', label: 'left' }, { value: 'right', label: 'right' }] },
+          { key: 'margin',    label: 'margin',      type: 'text', placeholder: '0 auto',    value: s('margin') },
+          { key: 'opacity',   label: 'opacity',     type: 'text', placeholder: '0.0 – 1.0', value: s('opacity') },
+        ]},
+      ],
+      onSubmit: (v) => this.applyDrawProps(el, v),
+    });
+  }
+
+  private applyDrawProps(el: HTMLElement, v: Record<string, string>): void {
+    const svg = el.querySelector('svg');
+    if (svg) {
+      const newStroke   = v['draw-stroke'];
+      const newWidth    = v['draw-stroke-width'];
+      const fillMode    = v['draw-fill'];
+
+      if (newStroke) {
+        // Remplace tous les strokes non-"none"
+        svg.querySelectorAll('[stroke]').forEach(e => {
+          if (e.getAttribute('stroke') !== 'none') e.setAttribute('stroke', newStroke);
+        });
+        // Texte : toujours fill = couleur du trait
+        svg.querySelectorAll('text').forEach(e => e.setAttribute('fill', newStroke));
+      }
+      if (newWidth) {
+        svg.querySelectorAll('[stroke-width]').forEach(e => e.setAttribute('stroke-width', newWidth));
+      }
+      if (fillMode) {
+        // Applique le mode de remplissage uniquement sur les formes qui avaient déjà un fill non-none
+        svg.querySelectorAll('[fill]:not(text):not([fill="context-stroke"])').forEach(e => {
+          const cur = e.getAttribute('fill');
+          if (cur === 'none') return;
+          const newF = fillMode === 'none' ? 'none'
+                     : fillMode === 'white' ? '#ffffff'
+                     : (newStroke ?? cur!);
+          e.setAttribute('fill', newF);
+        });
+      }
+    }
+    // Propriétés CSS du conteneur
+    for (const prop of ['max-width', 'float', 'margin', 'opacity']) {
+      if (prop in v) {
+        if (v[prop]) el.style.setProperty(prop, v[prop]);
+        else el.style.removeProperty(prop);
+      }
+    }
+    this.onChange?.();
   }
 
   private setupMathClickHandler(): void {
@@ -1224,9 +1348,7 @@ export class WysiwygEditor {
     const p1 = document.createElement('p'); p1.innerHTML = '<br>';
     const p2 = document.createElement('p'); p2.innerHTML = '<br>';
     this.restoreRange();
-    this.editorEl.appendChild(p1);
-    this.editorEl.appendChild(table.el);
-    this.editorEl.appendChild(p2);
+    this.insertBlocksAtRange(p1, table.el, p2);
   }
 
   private openSpecialCharPanel(): void {
@@ -1347,13 +1469,7 @@ export class WysiwygEditor {
 
     const trailing = document.createElement('p');
     trailing.innerHTML = '<br>';
-    const anchor = this.getCurrentBlock();
-    if (anchor) {
-      anchor.after(row, trailing);
-    } else {
-      this.editorEl.appendChild(row);
-      this.editorEl.appendChild(trailing);
-    }
+    this.insertBlocksAtRange(row, trailing);
     this.moveCursorTo(row.firstElementChild as HTMLElement);
     this.onChange?.();
   }
@@ -1676,13 +1792,7 @@ export class WysiwygEditor {
     div.innerHTML = '<br>';
     const p = document.createElement('p');
     p.innerHTML = '<br>';
-    const anchor = this.getCurrentBlock();
-    if (anchor) {
-      anchor.after(div, p);
-    } else {
-      this.editorEl.appendChild(div);
-      this.editorEl.appendChild(p);
-    }
+    this.insertBlocksAtRange(div, p);
     this.moveCursorTo(div);
     this.onChange?.();
   }
@@ -1705,13 +1815,7 @@ export class WysiwygEditor {
       sel.getRangeAt(0).deleteContents();
     }
 
-    const anchor = this.getCurrentBlock();
-    if (anchor) {
-      anchor.after(pre, p);
-    } else {
-      this.editorEl.appendChild(pre);
-      this.editorEl.appendChild(p);
-    }
+    this.insertBlocksAtRange(pre, p);
 
     // Place cursor inside <code>
     const range = document.createRange();
@@ -1726,12 +1830,7 @@ export class WysiwygEditor {
   private insertParagraph(): void {
     const p = document.createElement('p');
     p.innerHTML = '<br>';
-    const anchor = this.getCurrentBlock();
-    if (anchor) {
-      anchor.after(p);
-    } else {
-      this.editorEl.appendChild(p);
-    }
+    this.insertBlocksAtRange(p);
     this.moveCursorTo(p);
     this.onChange?.();
   }
@@ -1746,16 +1845,78 @@ export class WysiwygEditor {
 
   // ── Block helpers ──────────────────────────────────────────────────────────
 
-  /** Retourne l'élément enfant direct de editorEl contenant le curseur, ou null. */
+  /**
+   * Retourne le bloc-ancre contenant le curseur.
+   * S'arrête au fils direct de editorEl OU au fils direct d'une cellule de grille
+   * (.be-grid__col), de façon à ce que les insertions respectent le contexte
+   * (racine de l'éditeur ou intérieur d'une cellule).
+   */
   private getCurrentBlock(): HTMLElement | null {
     const sel = window.getSelection();
     if (!sel?.rangeCount) return null;
     let node: Node | null = sel.getRangeAt(0).startContainer;
     while (node && node !== this.editorEl) {
-      if ((node as HTMLElement).parentElement === this.editorEl) return node as HTMLElement;
-      node = node.parentNode;
+      const parent = (node as HTMLElement).parentElement;
+      if (!parent) break;
+      if (parent === this.editorEl || parent.classList.contains('be-grid__col')) {
+        return node as HTMLElement;
+      }
+      node = parent;
     }
     return null;
+  }
+
+  /**
+   * Insère des éléments bloc à la position du curseur courant.
+   * Fonctionne que le curseur soit à la racine de l'éditeur ou à l'intérieur
+   * d'une cellule de grille (.be-grid__col).
+   */
+  private insertBlocksAtRange(...elements: HTMLElement[]): void {
+    const sel = window.getSelection();
+    let anchor: HTMLElement | null = null;
+    let container: HTMLElement = this.editorEl;
+    if (sel?.rangeCount) {
+      let node: Node | null = sel.getRangeAt(0).startContainer;
+      while (node && node !== this.editorEl) {
+        const parent = (node as HTMLElement).parentElement;
+        if (!parent) break;
+        if (parent === this.editorEl || parent.classList.contains('be-grid__col')) {
+          anchor = node as HTMLElement;
+          container = parent;
+          break;
+        }
+        node = parent;
+      }
+    }
+    if (anchor) {
+      anchor.after(...elements);
+    } else {
+      elements.forEach(el => container.appendChild(el));
+    }
+  }
+
+  /**
+   * Insère un bloc HTML à la position du curseur (avec fallback DOM).
+   * Compatible grille : fonctionne aussi à l'intérieur d'une .be-grid__col.
+   */
+  private insertHtmlBlock(html: string): void {
+    this.editorEl.focus();
+    this.restoreRange();
+    const inserted = document.execCommand('insertHTML', false, html);
+    if (!inserted) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const node = tmp.firstElementChild;
+      if (!node) return;
+      const sel = window.getSelection();
+      if (sel?.rangeCount) {
+        const range = sel.getRangeAt(0);
+        range.collapse(false);
+        range.insertNode(node);
+      } else {
+        this.insertBlocksAtRange(node as HTMLElement);
+      }
+    }
   }
 
   /** Place le curseur au début de l'élément donné et focus l'éditeur. */
@@ -2176,6 +2337,8 @@ export class WysiwygEditor {
       s1.push(this.makeBtn(icn.math, 'Insérer une formule mathématique', () => this.insertMath()));
     if (this.opts.excalidraw && this.show('excalidraw', false))
       s1.push(this.makeBtn(icn.excalidraw, 'Insérer un dessin Excalidraw', () => this.insertExcalidraw()));
+    if (this.opts.draw && this.show('draw', false))
+      s1.push(this.makeBtn(icn.draw, 'Insérer un dessin SVG', () => this.insertDraw()));
     if (s1.length) sections.push(s1);
 
     // ── 2 · Listes ────────────────────────────────────────────────────────────
@@ -2566,6 +2729,8 @@ interface WysiwygFormOpts {
   fields?: WysiwygFormField[];
   /** Libellé du bouton de validation (défaut : 'Insérer') */
   submitLabel?: string;
+  /** Boutons d'action secondaires affichés à gauche du bouton Annuler */
+  extraActions?: { label: string; onClick: () => void }[];
   onSubmit: (values: Record<string, string>) => void;
 }
 
@@ -2574,6 +2739,7 @@ class WysiwygFormModal {
   private readonly titleEl: HTMLElement;
   private readonly bodyEl: HTMLElement;
   private submitBtnEl!: HTMLButtonElement;
+  private footerExtraEl!: HTMLElement;
   private currentOpts: WysiwygFormOpts | null = null;
   private inputs: Map<string, HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement> = new Map();
   isOpen = false;
@@ -2612,6 +2778,9 @@ class WysiwygFormModal {
     const footer = document.createElement('div');
     footer.className = 'be-form-modal__footer';
 
+    this.footerExtraEl = document.createElement('div');
+    this.footerExtraEl.className = 'be-form-modal__extra-actions';
+
     const cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
     cancelBtn.className = 'be-form-modal__btn be-form-modal__btn--cancel';
@@ -2625,6 +2794,7 @@ class WysiwygFormModal {
     submitBtn.addEventListener('click', () => this.submit());
     this.submitBtnEl = submitBtn;
 
+    footer.appendChild(this.footerExtraEl);
     footer.appendChild(cancelBtn);
     footer.appendChild(submitBtn);
 
@@ -2642,6 +2812,19 @@ class WysiwygFormModal {
     this.titleEl.textContent = opts.title;
     this.submitBtnEl.textContent = opts.submitLabel ?? 'Insérer';
     this.bodyEl.innerHTML = '';
+
+    // Extra action buttons (ex. "Modifier le dessin")
+    this.footerExtraEl.innerHTML = '';
+    if (opts.extraActions) {
+      for (const action of opts.extraActions) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'be-form-modal__btn be-form-modal__btn--extra';
+        btn.textContent = action.label;
+        btn.addEventListener('click', () => action.onClick());
+        this.footerExtraEl.appendChild(btn);
+      }
+    }
 
     const form = document.createElement('div');
     form.className = 'be-form-modal__form';
@@ -3132,6 +3315,7 @@ const icn = {
   mermaid:      S('<rect x="3" y="3" width="7" height="5" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="8" y="16" width="8" height="5" rx="1"/><line x1="6.5" y1="8" x2="6.5" y2="12"/><line x1="17.5" y1="8" x2="17.5" y2="12"/><line x1="6.5" y1="12" x2="12" y2="12"/><line x1="17.5" y1="12" x2="12" y2="12"/><line x1="12" y1="12" x2="12" y2="16"/>'),
   math:         S('<path d="M18 4H6l6 8-6 8h12"/>'),
   excalidraw:   S('<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>'),
+  draw:         S('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 15l3-4 2 2 3-5 3 7" stroke-linecap="round" stroke-linejoin="round"/>'),
   specialChar:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 3C8 3 5 7 5 12s3 9 7 9 7-4 7-9"/><path d="M16 8l-2 4h4l-2 4"/></svg>`,
   image:        S('<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>'),
   link:         S('<path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>'),

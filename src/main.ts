@@ -2,10 +2,6 @@ import { WysiwygEditor } from './index';
 import mermaid from 'mermaid';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
-import { Excalidraw, exportToSvg } from '@excalidraw/excalidraw';
-import '@excalidraw/excalidraw/index.css';
-import React from 'react';
-import ReactDOM from 'react-dom/client';
 
 mermaid.initialize({ startOnLoad: false, theme: 'default' });
 
@@ -15,8 +11,8 @@ const output = document.getElementById('output')!;
 const editor = new WysiwygEditor({
   mermaid,
   katex,
-  excalidraw: { Excalidraw, exportToSvg, React, ReactDOM },
-  toolbar: { mermaid: true, math: true, excalidraw: true },
+  draw: true,
+  toolbar: { mermaid: true, math: true, draw: true },
 });
 editor.el.style.height = '100%';
 wrap.appendChild(editor.el);
