@@ -1878,7 +1878,7 @@ export class WysiwygEditor {
     if (!sel?.rangeCount) return null;
     let node: Node | null = sel.getRangeAt(0).startContainer;
     while (node && node !== this.editorEl) {
-      const parent = (node as HTMLElement).parentElement;
+      const parent: HTMLElement | null = (node as HTMLElement).parentElement;
       if (!parent) break;
       if (parent === this.editorEl || parent.classList.contains('be-grid__col')) {
         return node as HTMLElement;
@@ -1900,7 +1900,7 @@ export class WysiwygEditor {
     if (sel?.rangeCount) {
       let node: Node | null = sel.getRangeAt(0).startContainer;
       while (node && node !== this.editorEl) {
-        const parent = (node as HTMLElement).parentElement;
+        const parent: HTMLElement | null = (node as HTMLElement).parentElement;
         if (!parent) break;
         if (parent === this.editorEl || parent.classList.contains('be-grid__col')) {
           anchor = node as HTMLElement;
