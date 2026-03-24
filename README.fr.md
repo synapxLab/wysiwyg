@@ -379,6 +379,37 @@ import type { WysiwygOptions, WysiwygToolbarConfig, WysiwygTwigSnippet } from '@
 
 ---
 
+## Pourquoi pas CKEditor / TinyMCE / Editor.js ?
+
+| | `@synapxlab/wysiwyg` | CKEditor 5 | TinyMCE | Editor.js |
+|---|---|---|---|---|
+| **Dépendances runtime** | 0 | ~1 Mo bundle | ~400 ko | ~200 ko |
+| **Licence** | MIT (gratuit) | GPL / Commercial | Commercial | MIT |
+| **TypeScript** | Natif (types complets) | Partiel | Partiel | Partiel |
+| **Pagebuilder / grille** | ✅ intégré | ❌ | ❌ | ❌ |
+| **Dessin SVG natif** | ✅ intégré | ❌ | ❌ | ❌ |
+| **Diagrammes Mermaid** | ✅ opt-in | ❌ | ❌ | ❌ |
+| **Formules KaTeX** | ✅ opt-in | plugin | plugin | ❌ |
+| **Snippets Twig injectables** | ✅ opt-in | ❌ | ❌ | ❌ |
+| **Éditeur source HTML** | ✅ avec coloration | ✅ | ✅ | ❌ |
+| **Inspecteur d'éléments** | ✅ intégré | ❌ | ❌ | ❌ |
+| **ESM + CJS** | ✅ | ✅ | ✅ | ✅ |
+| **Framework agnostique** | ✅ | ✅ | ✅ | ✅ |
+
+**Choisissez `@synapxlab/wysiwyg` si :**
+- Vous avez besoin d'un **pagebuilder** (grille multi-colonnes, blocs structurés) et pas seulement d'un éditeur rich-text
+- Vous voulez **zéro dépendance runtime** — pas de licence commerciale, pas de bundle lourd
+- Vous travaillez avec **Twig** et avez besoin d'injecter des snippets métier
+- Vous voulez du **dessin SVG natif** ou **Mermaid / KaTeX** sans configuration supplémentaire
+- Vous voulez un éditeur **entièrement maîtrisé par votre équipe** (MIT, forkable librement)
+
+**CKEditor / TinyMCE peuvent être plus adaptés si :**
+- Vous avez besoin d'édition collaborative avancée (multi-utilisateurs temps réel)
+- Vous dépendez d'un large écosystème de plugins existants
+- Votre équipe est déjà profondément intégrée avec l'une de ces plateformes
+
+---
+
 ## Compatibilité navigateurs
 
 Navigateurs modernes (Chrome 90+, Firefox 90+, Safari 15+, Edge 90+).
