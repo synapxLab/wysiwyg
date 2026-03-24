@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.2] — 2026-03-24
+
+### Fixed
+- **README** — indentation incorrecte de l'option `excalidraw` dans le bloc de code toolbar.
+- **TypeScript build** — `TS7022 'parent' implicitly has type 'any'` dans `getCurrentBlock()` et `insertBlocksAtRange()` ; ajout de l'annotation `HTMLElement | null`.
+- **TypeScript build** — `TS1259 allowSyntheticDefaultImports` requis par `excalidraw-vendor.ts` ; ajouté dans `tsconfig.build.json`.
+
 ## [1.3.1] — 2026-03-24
 
 ### Fixed

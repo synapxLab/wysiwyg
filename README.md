@@ -65,7 +65,7 @@ new WysiwygEditor({
     mermaid:      false,  // Mermaid diagrams (opt-in — requires opts.mermaid)
     math:         false,  // Math formulas KaTeX (opt-in — requires opts.katex)
     draw:         false,  // Éditeur vectoriel natif (opt-in — aucune dépendance)
-  excalidraw:   false,  // Excalidraw drawings (opt-in — requires opts.excalidraw)
+    excalidraw:   false,  // Excalidraw drawings (opt-in — requires opts.excalidraw)
     table:        true,   // Table with merge/split
     hr:           true,
     codeBlock:    true,   // <pre><code> block
