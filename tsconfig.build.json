@@ -3,12 +3,14 @@
   "compilerOptions": {
     "declaration": true,
     "declarationDir": "dist/types",
+    "rootDir": "src",
     "emitDeclarationOnly": true,
     "noEmit": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "moduleResolution": "node",
-    "allowSyntheticDefaultImports": true
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "allowArbitraryExtensions": true
   },
   "include": ["src"],
   "exclude": ["src/main.ts"]
