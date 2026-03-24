@@ -371,7 +371,7 @@ Toutes les variables sont scopées à `.be-wysiwyg`. Surchargez-les sur le conte
 
 ## TypeScript
 
-Les déclarations de types sont incluses :
+Les déclarations de types sont incluses. Compatible **TypeScript 5 et 6**.
 
 ```ts
 import type { WysiwygOptions, WysiwygToolbarConfig, WysiwygTwigSnippet } from '@synapxlab/wysiwyg';

@@ -371,7 +371,7 @@ All variables are scoped to `.be-wysiwyg`. Override them on the container or glo
 
 ## TypeScript
 
-Full type declarations are included:
+Full type declarations are included. Compatible with **TypeScript 5 and 6**.
 
 ```ts
 import type { WysiwygOptions, WysiwygToolbarConfig, WysiwygTwigSnippet } from '@synapxlab/wysiwyg';
