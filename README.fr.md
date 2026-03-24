@@ -302,7 +302,24 @@ Faites glisser l'icône de poignée en bas à droite de la barre de statut pour 
 
 ## Snippets Twig (opt-in)
 
-Activez avec `toolbar: { twig: true }`. Ouvre un panneau avec 27 snippets prêts à l'emploi en 6 catégories (variables, conditions, boucles, filtres, fonctions, i18n). Les snippets sont insérés en texte brut pour être traités par les moteurs de templates Twig.
+Activez avec `toolbar: { twig: true }`. Ouvre un panneau avec des snippets prêts à l'emploi en 6 catégories intégrées (variables, conditions, boucles, filtres, client, facture). Les snippets sont insérés en texte brut pour être traités par les moteurs de templates Twig.
+
+### Injection de snippets personnalisés
+
+Ajoutez des snippets propres à votre projet via `twigSnippets`. Ils s'ajoutent après les snippets intégrés.
+
+```ts
+import type { WysiwygTwigSnippet } from '@synapxlab/wysiwyg';
+
+new WysiwygEditor({
+  toolbar: { twig: true },
+  twigSnippets: [
+    { cat: 'Mon projet', label: '{{ user.name }}',  code: '{{ user.name }}' },
+    { cat: 'Mon projet', label: '|monFiltre',       code: '{{ valeur|monFiltre }}' },
+    { cat: 'Dates',      label: '{{year}}',         code: '{{year}}' },
+  ],
+});
+```
 
 ---
 

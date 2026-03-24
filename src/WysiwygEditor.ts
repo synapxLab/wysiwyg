@@ -190,6 +190,31 @@ export interface WysiwygOptions {
    * new WysiwygEditor({ draw: true, toolbar: { draw: true } })
    */
   draw?: boolean;
+  /**
+   * Snippets Twig supplémentaires injectés dans le panneau Twig.
+   * Chaque entrée doit avoir une catégorie, un libellé et le code à insérer.
+   * Ces snippets s'ajoutent aux snippets génériques intégrés.
+   *
+   * @example
+   * new WysiwygEditor({
+   *   toolbar: { twig: true },
+   *   twigSnippets: [
+   *     { cat: 'Mon projet', label: '{{ user.name }}',  code: '{{ user.name }}' },
+   *     { cat: 'Mon projet', label: '|asLetters',       code: '{{ val|asLetters }}' },
+   *   ]
+   * })
+   */
+  twigSnippets?: WysiwygTwigSnippet[];
+}
+
+/** Un snippet Twig injectables dans le panneau Twig. */
+export interface WysiwygTwigSnippet {
+  /** Catégorie d'affichage (en-tête de section dans le panneau) */
+  cat: string;
+  /** Libellé affiché sur le bouton */
+  label: string;
+  /** Code inséré dans l'éditeur au clic */
+  code: string;
 }
 
 export class WysiwygEditor {
@@ -1531,6 +1556,8 @@ export class WysiwygEditor {
       // ── Système
       { cat: 'Système',   label: 'Date du jour',             code: '{{ sys.day }}' },
       { cat: 'Système',   label: 'Paraphe / Signature',      code: '{{ sys.paraf }}' },
+      // ── Snippets injectés via opts.twigSnippets
+      ...(this.opts.twigSnippets ?? []),
     ];
 
     const cats = [...new Set(snippets.map(s => s.cat))];

@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.3] — 2026-03-24
+
+### Added
+- **`twigSnippets` option** — injection de snippets Twig personnalisés dans le panneau Twig. Chaque entrée `{ cat, label, code }` est ajoutée après les snippets intégrés. Type `WysiwygTwigSnippet` exporté depuis le package.
+- **`WysiwygTwigSnippet`** — type TypeScript exporté pour les snippets injectables.
+
+### Changed
+- Suppression des snippets Adliss-spécifiques du panneau Twig intégré (ils étaient couplés à l'ERP Adliss). À injecter via `twigSnippets` côté intégration.
+
 ## [1.3.2] — 2026-03-24
 
 ### Fixed

@@ -302,7 +302,24 @@ Drag the grip icon in the bottom-right corner of the status bar to resize the ed
 
 ## Twig snippets (opt-in)
 
-Enable with `toolbar: { twig: true }`. Opens a panel with 27 ready-made snippets in 6 categories (variables, conditions, loops, filters, functions, i18n). Snippets are inserted as plain text so Twig templating engines can process them.
+Enable with `toolbar: { twig: true }`. Opens a panel with ready-made snippets in 6 built-in categories (variables, conditions, loops, filters, client, invoice). Snippets are inserted as plain text so Twig templating engines can process them.
+
+### Custom snippets injection
+
+Add project-specific snippets via `twigSnippets`. They are appended after the built-in ones.
+
+```ts
+import type { WysiwygTwigSnippet } from '@synapxlab/wysiwyg';
+
+new WysiwygEditor({
+  toolbar: { twig: true },
+  twigSnippets: [
+    { cat: 'Mon projet', label: '{{ user.name }}',  code: '{{ user.name }}' },
+    { cat: 'Mon projet', label: '|myFilter',        code: '{{ value|myFilter }}' },
+    { cat: 'Dates',      label: '{{year}}',         code: '{{year}}' },
+  ],
+});
+```
 
 ---
 
