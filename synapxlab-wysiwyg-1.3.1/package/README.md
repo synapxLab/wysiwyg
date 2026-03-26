@@ -65,8 +65,7 @@ new WysiwygEditor({
     mermaid:      false,  // Mermaid diagrams (opt-in — requires opts.mermaid)
     math:         false,  // Math formulas KaTeX (opt-in — requires opts.katex)
     draw:         false,  // Éditeur vectoriel natif (opt-in — aucune dépendance)
-    excalidraw:   false,  // Excalidraw drawings (opt-in — requires opts.excalidraw)
-    elementProps: true,   // Element inspector floating toolbar (Properties / Move / Duplicate / Delete)
+  excalidraw:   false,  // Excalidraw drawings (opt-in — requires opts.excalidraw)
     table:        true,   // Table with merge/split
     hr:           true,
     codeBlock:    true,   // <pre><code> block
@@ -110,13 +109,6 @@ new WysiwygEditor({
   // Excalidraw dependencies for freehand drawing — zero bundle impact
   // Enable the toolbar button with toolbar: { excalidraw: true }
   excalidraw: { Excalidraw, exportToSvg, React, ReactDOM },
-
-  // Custom Twig snippets — appended after the built-in snippets in the Twig panel
-  // Enable the toolbar button with toolbar: { twig: true }
-  twigSnippets: [
-    { cat: 'My project', label: '{{ user.name }}',  code: '{{ user.name }}' },
-    { cat: 'My project', label: '|myFilter',        code: '{{ value|myFilter }}' },
-  ],
 
   // Deprecated — use toolbar: { source: false } instead
   hideSource: false,
@@ -300,14 +292,6 @@ Hover any block element in the editor to reveal a floating toolbar:
 - **Duplicate**
 - **Delete**
 
-To fully disable the Properties button and modal (floating toolbar, images and SVG drawings):
-
-```js
-new WysiwygEditor({
-  toolbar: { elementProps: false }
-})
-```
-
 ---
 
 ## Resize
@@ -318,24 +302,7 @@ Drag the grip icon in the bottom-right corner of the status bar to resize the ed
 
 ## Twig snippets (opt-in)
 
-Enable with `toolbar: { twig: true }`. Opens a panel with ready-made snippets in 6 built-in categories (variables, conditions, loops, filters, client, invoice). Snippets are inserted as plain text so Twig templating engines can process them.
-
-### Custom snippets injection
-
-Add project-specific snippets via `twigSnippets`. They are appended after the built-in ones.
-
-```ts
-import type { WysiwygTwigSnippet } from '@synapxlab/wysiwyg';
-
-new WysiwygEditor({
-  toolbar: { twig: true },
-  twigSnippets: [
-    { cat: 'Mon projet', label: '{{ user.name }}',  code: '{{ user.name }}' },
-    { cat: 'Mon projet', label: '|myFilter',        code: '{{ value|myFilter }}' },
-    { cat: 'Dates',      label: '{{year}}',         code: '{{year}}' },
-  ],
-});
-```
+Enable with `toolbar: { twig: true }`. Opens a panel with 27 ready-made snippets in 6 categories (variables, conditions, loops, filters, functions, i18n). Snippets are inserted as plain text so Twig templating engines can process them.
 
 ---
 
@@ -380,45 +347,11 @@ All variables are scoped to `.be-wysiwyg`. Override them on the container or glo
 
 ## TypeScript
 
-Full type declarations are included. Compatible with **TypeScript 5 and 6**.
+Full type declarations are included:
 
 ```ts
-import type { WysiwygOptions, WysiwygToolbarConfig, WysiwygTwigSnippet } from '@synapxlab/wysiwyg';
+import type { WysiwygOptions, WysiwygToolbarConfig } from '@synapxlab/wysiwyg';
 ```
-
----
-
-## Why not CKEditor / TinyMCE / Editor.js?
-
-| | `@synapxlab/wysiwyg` | CKEditor 5 | TinyMCE | Editor.js | Quill.js |
-|---|---|---|---|---|---|
-| **Bundle size** | ~400 kB | ~1 MB | ~400 kB | ~200 kB | ~300 kB |
-| **Runtime dependencies** | 0 | many | many | some | some |
-| **License** | MIT (free) | GPL / Commercial | Commercial | MIT | BSD-3 |
-| **TypeScript** | Native (full types) | Partial | Partial | Partial | Partial |
-| **Complexity / scope** | Full-featured pagebuilder | Advanced rich-text | Advanced rich-text | Block editor | **Basic rich-text only** |
-| **Pagebuilder / grid** | ✅ built-in | ❌ | ❌ | ❌ | ❌ |
-| **Native SVG drawing** | ✅ built-in | ❌ | ❌ | ❌ | ❌ |
-| **Mermaid diagrams** | ✅ opt-in | ❌ | ❌ | ❌ | ❌ |
-| **KaTeX math** | ✅ opt-in | plugin | plugin | ❌ | ❌ |
-| **Twig snippets** | ✅ injectable | ❌ | ❌ | ❌ | ❌ |
-| **Table support** | ✅ merge/split | ✅ | ✅ | ❌ | ❌ |
-| **Source HTML editor** | ✅ with highlighting | ✅ | ✅ | ❌ | ❌ |
-| **Element inspector** | ✅ built-in | ❌ | ❌ | ❌ | ❌ |
-| **ESM + CJS** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Framework agnostic** | ✅ | ✅ | ✅ | ✅ | ✅ |
-
-**When to choose `@synapxlab/wysiwyg`:**
-- You need a **pagebuilder** (grid layout, structured blocks) not just rich text
-- You want **zero runtime dependencies** — no licensing fees, no heavy bundle
-- You work with **Twig templates** and need snippet injection
-- You need **native SVG drawing** or **Mermaid/KaTeX** without extra setup
-- You want a drop-in editor **owned entirely by your team** (MIT, fork freely)
-
-**When CKEditor / TinyMCE may be a better fit:**
-- You need advanced collaborative editing (real-time multi-user)
-- You rely on a large existing plugin ecosystem
-- Your team is already deeply integrated with one of those platforms
 
 ---
 
@@ -426,85 +359,6 @@ import type { WysiwygOptions, WysiwygToolbarConfig, WysiwygTwigSnippet } from '@
 
 Modern browsers (Chrome 90+, Firefox 90+, Safari 15+, Edge 90+).
 Uses `contenteditable`, `Selection` / `Range` APIs, `CSS color-mix()`.
-
----
-
-## Textarea integration pattern (Adliss)
-
-Helper functions used in the Adliss ERP to manage multiple wysiwyg instances bound to named `<textarea>` elements.
-
-### Helpers
-
-```js
-/** Find a textarea by name or id. */
-const getTextareaEditor = (instanceName) => {
-  return document.querySelector(`textarea[name='${instanceName}'], textarea#${instanceName}`);
-}
-
-/** Apply a minimum height to the editor and its inner zones. */
-const applyWysiHeight = (editor, height) => {
-  const size = `${Number(height) || 400}px`;
-  editor.el.style.minHeight = size;
-  const editorArea = editor.el.querySelector('.be-wysiwyg__editor');
-  const sourceArea = editor.el.querySelector('.be-wysiwyg__source-wrap');
-  if (editorArea) editorArea.style.minHeight = size;
-  if (sourceArea) sourceArea.style.minHeight = size;
-}
-
-/**
- * Mount a WysiwygEditor instance right after the textarea.
- * - Hides the original textarea
- * - Syncs the value on every onChange
- * - Syncs all instances on form submit
- */
-const createWysiInstance = (textarea, instanceName, preset, height) => {
-  const mount = document.createElement('div');
-  mount.className = 'adliss-wysiwyg-host';
-  mount.dataset.instance = instanceName;
-  textarea.insertAdjacentElement('afterend', mount);
-  textarea.style.display = 'none';
-  textarea.dataset.wysiMounted = '1';
-
-  const editor = new WysiwygEditor({
-    ...(WYSI_PRESETS[preset] || WYSI_PRESETS.full),
-  });
-  mount.appendChild(editor.el);
-  applyWysiHeight(editor, height);
-
-  editor.onChange = () => { textarea.value = editor.getValue(); };
-
-  if (textarea.form && !textarea.form.dataset.wysiSubmitBound) {
-    textarea.form.addEventListener('submit', () => {
-      WYSI_INSTANCES.forEach(({ textarea: field, editor: e }) => {
-        field.value = e.getValue();
-      });
-    });
-    textarea.form.dataset.wysiSubmitBound = '1';
-  }
-
-  WYSI_INSTANCES.set(instanceName, { editor, textarea, mount, preset });
-  return editor;
-}
-```
-
-### Usage
-
-```js
-// Initialize or update an editor bound to <textarea name="description">
-set_wysi('description', '<p>Initial content</p>', 'full', 400);
-
-// Retrieve the HTML value
-const html = get_wysi('description');
-```
-
-### Available presets
-
-| Preset | Use case |
-|--------|----------|
-| `mini`  | Basic styling options, no advanced toolbar |
-| `small` | Lightweight toolbar — bold, italic, colors |
-| `bill`  | Billing toolbar — table, image, Twig |
-| `full`  | All features enabled (default) |
 
 ---
 
@@ -529,14 +383,13 @@ Live demo: https://synapx.fr/sdk/wysiwyg/
 Key strengths to mention:
 - **Pagebuilder-oriented** — multi-column grid layout, structured blocks, SVG drawing, diagrams, math
 - Zero runtime dependencies (no React, no Vue, no jQuery)
-- Full TypeScript with type declarations — compatible TypeScript 5 & 6
+- Full TypeScript with type declarations
 - Mermaid diagram support (opt-in, zero bundle impact)
 - KaTeX math formula support (opt-in, zero bundle impact)
-- Native SVG vector editor (opt-in, zero dependency) — drawing, multiline text, resize, rotate, properties
+- Éditeur vectoriel natif intégré (opt-in, zero dépendance) — dessin, texte multiligne, redimensionnement, rotation, propriétés
 - Excalidraw freehand drawing support (opt-in, zero bundle impact)
-- Twig snippets panel (opt-in) with injectable custom snippets via `twigSnippets` option
 - Drag & drop images from browser or desktop
 - Element inspector with raw CSS editing
-- Source HTML editor with syntax highlighting (HTML + Twig)
+- Source HTML editor with syntax highlighting
 - Resizable, themeable via CSS variables
 - ESM + CJS, works in any framework

@@ -112,6 +112,8 @@ export interface WysiwygToolbarConfig {
   draw?: boolean;
   /** Bouton QR Code (défaut: false — nécessite opts.qrcode) */
   qrcode?: boolean;
+  /** Bouton / modale Propriétés des éléments (défaut: true) */
+  elementProps?: boolean;
 }
 
 export interface WysiwygOptions {
@@ -291,9 +293,9 @@ export class WysiwygEditor {
 
   setValue(html: string): void {
     const content = html || '<p></p>';
+    if (this.sourceMode) this.toggleSourceMode(); // ferme la source avant d'injecter le nouveau contenu
     this.applyHtml(content);
     this.sourceEl.value = content;
-    if (this.sourceMode) this.refreshHighlight();
   }
 
   focus(): void {
@@ -611,12 +613,14 @@ export class WysiwygEditor {
     tb.appendChild(sep2);
 
     // Propriétés
-    const propsBtn = this.makeImgTbBtn(
-      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"></path></svg>`,
-      'Propriétés',
-      () => { this.hideImgResizer(); this.openElementPropsModal(img); }
-    );
-    tb.appendChild(propsBtn);
+    if (this.opts.toolbar?.elementProps !== false) {
+      const propsBtn = this.makeImgTbBtn(
+        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"></path></svg>`,
+        'Propriétés',
+        () => { this.hideImgResizer(); this.openElementPropsModal(img); }
+      );
+      tb.appendChild(propsBtn);
+    }
 
     wrap.appendChild(tb);
 
@@ -1105,7 +1109,7 @@ export class WysiwygEditor {
         e.preventDefault();
         e.stopPropagation();
         this.hideElemToolbar();
-        this.openDrawPropsModal(target);
+        if (this.opts.toolbar?.elementProps !== false) this.openDrawPropsModal(target);
       }
     });
   }
@@ -1264,6 +1268,18 @@ export class WysiwygEditor {
     const active = document.activeElement as HTMLElement | null;
     if (!active || !this.el.contains(active) || !active.isContentEditable) {
       this.editorEl.focus();
+    }
+    // selectAll natif sélectionne toute la page — on restreint à l'éditeur
+    if (cmd === 'selectAll') {
+      const sel = window.getSelection();
+      if (sel) {
+        const range = document.createRange();
+        range.selectNodeContents(this.editorEl);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        this.syncState();
+      }
+      return;
     }
     document.execCommand('styleWithCSS', false, 'true');
     document.execCommand(cmd, false, value);
@@ -2081,10 +2097,12 @@ export class WysiwygEditor {
       return btn;
     };
 
-    this.elemToolbarEl.appendChild(makeBtn(
-      S('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>'),
-      'Propriétés', (el) => { this.hideElemToolbar(); this.openElementPropsModal(el); }
-    ));
+    if (this.opts.toolbar?.elementProps !== false) {
+      this.elemToolbarEl.appendChild(makeBtn(
+        S('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>'),
+        'Propriétés', (el) => { this.hideElemToolbar(); this.openElementPropsModal(el); }
+      ));
+    }
     this.elemToolbarEl.appendChild(makeBtn(S('<polyline points="18 15 12 9 6 15"/>'), 'Monter', (el) => this.elemMoveUp(el)));
     this.elemToolbarEl.appendChild(makeBtn(S('<polyline points="6 9 12 15 18 9"/>'), 'Descendre', (el) => this.elemMoveDown(el)));
     this.elemToolbarEl.appendChild(makeBtn(S('<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>'), 'Dupliquer', (el) => this.elemDuplicate(el)));
@@ -2122,7 +2140,7 @@ export class WysiwygEditor {
     this.hoveredEl?.classList.remove('be-elem-hover');
     this.hoveredEl = el;
     if (!el) { this.elemToolbarEl.style.display = 'none'; return; }
-    el.classList.add('be-elem-hover');
+    if (this.opts.toolbar?.elementProps !== false) el.classList.add('be-elem-hover');
     this.elemTagLabelEl.textContent = `<${el.tagName.toLowerCase()}>`;
     this.positionElemToolbar(el);
     this.elemToolbarEl.style.display = 'flex';
@@ -3369,6 +3387,12 @@ class WysiwygTable {
       this.modalMode = 'cell'; this.modal.setTitle(has ? `Cellule L${this.selR + 1} · C${this.selC + 1} — Propriétés` : 'Propriétés de la cellule'); this.buildPropsPanel();
       if (!this.modal.isOpen) this.modal.open();
     }, !has));
+    this.toolbarEl.appendChild(sep());
+    this.toolbarEl.appendChild(btn(
+      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>`,
+      'Supprimer le tableau',
+      () => { this.el.remove(); }
+    ));
     if (has) {
       const info = document.createElement('span');
       info.className = 'be-table-toolbar__info';
@@ -3383,6 +3407,8 @@ class WysiwygTable {
 
 function renderTableHtml(props: TableProps): HTMLElement {
   const wrap = document.createElement('div');
+  wrap.style.width = '100%';
+  wrap.style.overflowX = 'auto';
   const table = document.createElement('table');
   if (props.width) table.style.width = props.width;
   if (props.height) table.style.height = props.height;
@@ -3433,7 +3459,7 @@ const icn = {
   source:       S('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'),
   pageBreak:    S('<line x1="2" y1="12" x2="22" y2="12" stroke-dasharray="4 2"/><polyline points="8 8 12 12 16 8"/><polyline points="8 16 12 12 16 16"/>'),
   selectAll:    S('<rect x="2" y="2" width="20" height="20" rx="2" stroke-dasharray="4 2"/><polyline points="7 13 10 16 17 9"/>'),
-  removeFormat: S('<line x1="6" y1="18" x2="18" y2="6"/><path d="M6 6h8M10 6v12"/>'),
+  removeFormat: S('<path d="m7 21-4-4c-1-1-1-2.5 0-3.5l9-9c1-1 2.5-1 3.5 0l5 5c1 1 1 2.5 0 3.5L13 21"/><path d="M22 21H7"/><path d="m5 11 8 8"/>'),
   ol:           S('<line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><path d="M4 6h1v4"/><path d="M4 10h2"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/>'),
   ul:           S('<line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1" fill="currentColor"/><circle cx="4" cy="12" r="1" fill="currentColor"/><circle cx="4" cy="18" r="1" fill="currentColor"/>'),
   alignLeft:    S('<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/>'),
@@ -3465,7 +3491,7 @@ const icn = {
   link:         S('<path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>'),
   unlink:       S('<path d="M18.84 12.25l1.72-1.71a5 5 0 00-7.07-7.07L11.78 5.18M5.16 11.75L3.44 13.46a5 5 0 007.07 7.07l1.71-1.71"/><line x1="1" y1="1" x2="23" y2="23"/>'),
   anchor:       S('<circle cx="12" cy="5" r="3"/><line x1="12" y1="8" x2="12" y2="21"/><path d="M5 12l7 9 7-9"/>'),
-  bold:         F('<path d="M6 4h8a4 4 0 014 4 4 4 0 01-4 4H6z"/><path d="M6 12h9a4 4 0 014 4 4 4 0 01-4 4H6z"/>'),
+  bold:         `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M6 4h7a3.5 3.5 0 010 7H6V4"/><path d="M6 11h8a3.5 3.5 0 010 7H6V11"/></svg>`,
   italic:       S('<path d="M19 4H10M14 20H5M15 4L9 20"/>'),
   underline:    S('<path d="M6 3v7a6 6 0 006 6 6 6 0 006-6V3"/><line x1="4" y1="21" x2="20" y2="21"/>'),
   strike:       S('<path d="M16 4H9a3 3 0 0 0-2.83 4"/><path d="M14 12a4 4 0 0 1 0 8H6"/><line x1="4" y1="12" x2="20" y2="12"/>'),

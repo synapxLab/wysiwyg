@@ -851,8 +851,11 @@
     color: #cdd6f4;
     background: transparent;
     pointer-events: none;
-    overflow: hidden;   // scroll piloté par le textarea
+    overflow: auto;          // même comportement que le textarea → scrollbar reservé identique → alignement parfait
+    scrollbar-width: none;   // scrollbar invisible (Firefox)
     z-index: 0;
+
+    &::-webkit-scrollbar { display: none; } // scrollbar invisible (Chrome/Safari)
 
     // Tokens de couleur (palette Catppuccin Mocha)
     .be-hl-c  { color: #6c7086; font-style: italic; }        // commentaire
@@ -873,12 +876,15 @@
     z-index: 1;
     resize: none;
     background: transparent;
-    color: transparent;
-    caret-color: #cdd6f4;
+    color: transparent !important;
+    caret-color: #cdd6f4 !important;
     overflow: auto;
     display: block;
     height: 100%;
+    -webkit-appearance: none;
+    appearance: none;
 
+    &:focus { border: none !important; left: 0 !important; top: 0 !important; box-shadow: none !important; }
     &::selection { background: rgba(137, 180, 250, .30); }
     &::-moz-selection { background: rgba(137, 180, 250, .30); }
   }
