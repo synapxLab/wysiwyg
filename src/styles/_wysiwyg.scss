@@ -267,6 +267,7 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+    &--flat { padding: 14px 16px; gap: 10px; }
   }
 
   // ── Onglets ──────────────────────────────────────────────────────────────────
@@ -340,6 +341,13 @@
     background: transparent;
     cursor: pointer;
     flex-shrink: 0;
+  }
+
+  // ── Ligne inline (champs côte à côte) ────────────────────────────────────
+  &__inline-row {
+    display: flex;
+    gap: 10px;
+    .be-field { flex: 1; min-width: 0; }
   }
 
   // ── Séparateur simple ─────────────────────────────────────────────────────
@@ -1556,5 +1564,18 @@
     display: block;
     max-width: 100%;
     height: auto;
+  }
+}
+
+.be-qr {
+  display: inline-block;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: box-shadow .15s;
+
+  &:hover { box-shadow: 0 0 0 2px var(--be-primary, #4f46e5); }
+
+  svg {
+    display: block;
   }
 }

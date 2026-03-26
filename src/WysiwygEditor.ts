@@ -2,7 +2,11 @@
 // Éditeur WYSIWYG riche (contenteditable).
 
 import type { TableProps } from './table';
-import { WysiwygDrawEditor } from './draw';
+/** Interface minimale attendue d'un DrawEditor injectable. */
+interface DrawEditorLike {
+  open(existingSvg: string, onInsert: (svgStr: string) => void): void;
+  destroy(): void;
+}
 import {
   ensureCells,
   insertRow, deleteRow, insertCol, deleteCol,
@@ -106,6 +110,8 @@ export interface WysiwygToolbarConfig {
   excalidraw?: boolean;
   /** Bouton éditeur SVG maison WysiwygDraw (défaut: false — opt-in) */
   draw?: boolean;
+  /** Bouton QR Code (défaut: false — nécessite opts.qrcode) */
+  qrcode?: boolean;
 }
 
 export interface WysiwygOptions {
@@ -183,13 +189,24 @@ export interface WysiwygOptions {
     ReactDOM: any;
   };
   /**
-   * Active l'éditeur SVG maison WysiwygDraw (zéro dépendance externe).
+   * Instance QRCode injectable pour la génération de QR codes.
+   * Passez l'objet `QRCode` de `@synapxlab/qrcode`.
+   *
+   * @example
+   * import { QRCode } from '@synapxlab/qrcode';
+   * new WysiwygEditor({ qrcode: QRCode, toolbar: { qrcode: true } })
+   */
+  qrcode?: { toSVG(text: string, opts?: { size?: number; margin?: number; errorCorrection?: string; color?: string; background?: string }): string };
+  /**
+   * Éditeur SVG injectable — passez la classe `DrawEditor` de `@synapxlab/draw`.
    * Afficher le bouton via `toolbar: { draw: true }`.
    *
    * @example
-   * new WysiwygEditor({ draw: true, toolbar: { draw: true } })
+   * import { DrawEditor } from '@synapxlab/draw';
+   * import '@synapxlab/draw/style.css';
+   * new WysiwygEditor({ draw: DrawEditor, toolbar: { draw: true } })
    */
-  draw?: boolean;
+  draw?: new () => DrawEditorLike;
   /**
    * Snippets Twig supplémentaires injectés dans le panneau Twig.
    * Chaque entrée doit avoir une catégorie, un libellé et le code à insérer.
@@ -242,7 +259,7 @@ export class WysiwygEditor {
   private wordCountEl!: HTMLElement;
   private imgResizerEl: HTMLElement | null = null;
   private resizingImg: HTMLImageElement | null = null;
-  private drawEditor: WysiwygDrawEditor | null = null;
+  private drawEditor: DrawEditorLike | null = null;
 
   constructor(opts: WysiwygOptions = {}) {
     this.opts = opts;
@@ -262,6 +279,7 @@ export class WysiwygEditor {
     this.setupMathClickHandler();
     this.setupExcalidrawClickHandler();
     this.setupDrawClickHandler();
+    this.setupQrcodeClickHandler();
     this.setupElementInspector();
   }
 
@@ -1064,8 +1082,9 @@ export class WysiwygEditor {
 
   private insertDraw(existingEl?: HTMLElement): void {
     this.saveRange();
+    if (!this.opts.draw) return;
     if (!this.drawEditor) {
-      this.drawEditor = new WysiwygDrawEditor();
+      this.drawEditor = new this.opts.draw();
     }
     const existingSvg = existingEl ? existingEl.innerHTML : '';
     this.drawEditor.open(existingSvg, (svgStr) => {
@@ -1170,6 +1189,61 @@ export class WysiwygEditor {
       }
     }
     this.onChange?.();
+  }
+
+  // ── QR Code ──────────────────────────────────────────────────────────────────
+
+  private setupQrcodeClickHandler(): void {
+    this.editorEl.addEventListener('click', (e) => {
+      const target = (e.target as HTMLElement).closest('.be-qr') as HTMLElement | null;
+      if (target) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.insertQrcode(target);
+      }
+    });
+  }
+
+  private insertQrcode(existingEl?: HTMLElement): void {
+    if (!this.opts.qrcode) return;
+    this.saveRange();
+    const esc = (s: string) => s.replace(/"/g, '&quot;');
+    this.formModal.show({
+      title: 'QR Code',
+      submitLabel: existingEl ? 'Mettre à jour' : 'Insérer',
+      fields: [
+        { key: 'text', label: 'Texte / URL', type: 'text', value: existingEl?.getAttribute('data-qr-text') ?? '', placeholder: 'https://…' },
+        [
+          { key: 'size',   label: 'Taille (px)',         type: 'text',   value: existingEl?.getAttribute('data-qr-size')   ?? '200' },
+          { key: 'margin', label: 'Marge (modules)',     type: 'text',   value: existingEl?.getAttribute('data-qr-margin') ?? '4' },
+          { key: 'ec',     label: "Correction d'erreur", type: 'select', value: existingEl?.getAttribute('data-qr-ec')     ?? 'M',
+            options: [{ value: 'L', label: 'L — 7 %' }, { value: 'M', label: 'M — 15 %' }, { value: 'Q', label: 'Q — 25 %' }, { value: 'H', label: 'H — 30 %' }] },
+        ],
+        [
+          { key: 'color', label: 'Couleur', type: 'color', value: existingEl?.getAttribute('data-qr-color') ?? '#000000' },
+          { key: 'bg',    label: 'Fond',    type: 'color', value: existingEl?.getAttribute('data-qr-bg')    ?? '#ffffff' },
+        ],
+      ],
+      onSubmit: (v) => {
+        const text = v.text?.trim() ?? '';
+        if (!text) return;
+        try {
+          const svg = this.opts.qrcode!.toSVG(text, {
+            size:            parseInt(v.size ?? '200') || 200,
+            margin:          parseInt(v.margin ?? '4') || 4,
+            errorCorrection: (v.ec ?? 'M') as 'L' | 'M' | 'Q' | 'H',
+            color:           v.color ?? '#000000',
+            background:      v.bg    ?? '#ffffff',
+          });
+          const block = `<div class="be-qr" contenteditable="false" data-qr-text="${esc(text)}" data-qr-size="${v.size ?? '200'}" data-qr-margin="${v.margin ?? '4'}" data-qr-ec="${v.ec ?? 'M'}" data-qr-color="${esc(v.color ?? '#000000')}" data-qr-bg="${esc(v.bg ?? '#ffffff')}">${svg}</div>`;
+          if (existingEl) { existingEl.outerHTML = block; }
+          else { this.insertHtmlBlock(block); }
+          this.onChange?.();
+        } catch (err: unknown) {
+          this.formModal.showError(`Erreur QR Code : ${err instanceof Error ? err.message : String(err)}`);
+        }
+      },
+    });
   }
 
   private setupMathClickHandler(): void {
@@ -2387,8 +2461,10 @@ export class WysiwygEditor {
       s1.push(this.makeBtn(icn.math, 'Insérer une formule mathématique', () => this.insertMath()));
     if (this.opts.excalidraw && this.show('excalidraw', false))
       s1.push(this.makeBtn(icn.excalidraw, 'Insérer un dessin Excalidraw', () => this.insertExcalidraw()));
-    if (this.show('draw', false))
+    if (this.opts.draw && this.show('draw', false))
       s1.push(this.makeBtn(icn.draw, 'Insérer un dessin SVG', () => this.insertDraw()));
+    if (this.opts.qrcode && this.show('qrcode', false))
+      s1.push(this.makeBtn(icn.qrcode, 'Insérer un QR Code', () => this.insertQrcode()));
     if (s1.length) sections.push(s1);
 
     // ── 2 · Listes ────────────────────────────────────────────────────────────
@@ -2766,9 +2842,12 @@ interface WysiwygFormField {
   rows?: number;
 }
 
+/** Tableau de champs = affichés sur la même ligne */
+type WysiwygFormRow = WysiwygFormField | WysiwygFormField[];
+
 interface WysiwygFormTab {
   label: string;
-  fields: WysiwygFormField[];
+  fields: WysiwygFormRow[];
 }
 
 interface WysiwygFormOpts {
@@ -2776,7 +2855,7 @@ interface WysiwygFormOpts {
   /** Mode onglets */
   tabs?: WysiwygFormTab[];
   /** Mode liste plate */
-  fields?: WysiwygFormField[];
+  fields?: WysiwygFormRow[];
   /** Libellé du bouton de validation (défaut : 'Insérer') */
   submitLabel?: string;
   /** Boutons d'action secondaires affichés à gauche du bouton Annuler */
@@ -2909,6 +2988,7 @@ class WysiwygFormModal {
       form.appendChild(tabBar);
       form.appendChild(paneContainer);
     } else if (opts.fields) {
+      form.classList.add('be-form-modal__form--flat');
       this.renderFields(form, opts.fields);
     }
 
@@ -2927,102 +3007,115 @@ class WysiwygFormModal {
     }, 0);
   }
 
-  private renderFields(container: HTMLElement, fields: WysiwygFormField[]): void {
+  private renderFields(container: HTMLElement, fields: WysiwygFormRow[]): void {
     for (const field of fields) {
-      if (field.sectionLabel) {
-        const sec = document.createElement('div');
-        sec.className = 'be-form-modal__section';
-        sec.textContent = field.sectionLabel;
-        container.appendChild(sec);
-      }
-
-      const row = document.createElement('div');
-      row.className = 'be-field';
-
-      const lbl = document.createElement('label');
-      lbl.className = 'be-field__label';
-      lbl.textContent = field.label;
-      row.appendChild(lbl);
-
-      if (field.type === 'color') {
-        const wrap = document.createElement('div');
-        wrap.className = 'be-form-modal__color-row';
-        const colorPick = document.createElement('input');
-        colorPick.type = 'color';
-        colorPick.className = 'be-form-modal__color-pick';
-        colorPick.value = /^#[0-9a-f]{6}$/i.test(field.value ?? '') ? field.value! : '#000000';
-        const textInp = document.createElement('input');
-        textInp.type = 'text';
-        textInp.className = 'be-field__input';
-        textInp.placeholder = field.placeholder ?? '#000000 ou red ou rgb(…)';
-        textInp.value = field.value ?? '';
-        colorPick.addEventListener('input', () => { textInp.value = colorPick.value; });
-        textInp.addEventListener('input', () => {
-          if (/^#[0-9a-f]{6}$/i.test(textInp.value)) colorPick.value = textInp.value;
-        });
-        textInp.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') { e.preventDefault(); this.submit(); }
-          if (e.key === 'Escape') { e.preventDefault(); this.close(); }
-        });
-        wrap.appendChild(colorPick);
-        wrap.appendChild(textInp);
-        row.appendChild(wrap);
-        this.inputs.set(field.key, textInp);
-        container.appendChild(row);
+      if (Array.isArray(field)) {
+        const rowWrap = document.createElement('div');
+        rowWrap.className = 'be-form-modal__inline-row';
+        for (const f of field) this.renderSingleField(rowWrap, f);
+        container.appendChild(rowWrap);
         continue;
       }
-
-      if (field.type === 'textarea') {
-        const ta = document.createElement('textarea');
-        ta.className = 'be-field__textarea';
-        ta.rows = field.rows ?? 6;
-        if (field.placeholder) ta.placeholder = field.placeholder;
-        if (field.value) ta.value = field.value;
-        ta.addEventListener('keydown', (e) => {
-          if (e.key === 'Escape') { e.preventDefault(); this.close(); }
-        });
-        this.inputs.set(field.key, ta);
-        row.appendChild(ta);
-        container.appendChild(row);
-        continue;
-      }
-
-      let input: HTMLInputElement | HTMLSelectElement;
-
-      if (field.type === 'select' && field.options) {
-        const sel = document.createElement('select');
-        sel.className = 'be-field__select';
-        for (const opt of field.options) {
-          const o = document.createElement('option');
-          o.value = opt.value; o.textContent = opt.label;
-          sel.appendChild(o);
-        }
-        if (field.value) sel.value = field.value;
-        input = sel;
-      } else {
-        const inp = document.createElement('input');
-        inp.type = field.type === 'url' ? 'url' : field.type === 'number' ? 'number' : 'text';
-        inp.className = 'be-field__input';
-        if (field.placeholder) inp.placeholder = field.placeholder;
-        if (field.value) inp.value = field.value;
-        if (field.required) inp.required = true;
-        inp.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') { e.preventDefault(); this.submit(); }
-          if (e.key === 'Escape') { e.preventDefault(); this.close(); }
-        });
-        input = inp;
-      }
-
-      this.inputs.set(field.key, input);
-      row.appendChild(input);
-      container.appendChild(row);
+      this.renderSingleField(container, field);
     }
+  }
+
+  private renderSingleField(container: HTMLElement, field: WysiwygFormField): void {
+    if (field.sectionLabel) {
+      const sec = document.createElement('div');
+      sec.className = 'be-form-modal__section';
+      sec.textContent = field.sectionLabel;
+      container.appendChild(sec);
+    }
+
+    const row = document.createElement('div');
+    row.className = 'be-field';
+
+    const lbl = document.createElement('label');
+    lbl.className = 'be-field__label';
+    lbl.textContent = field.label;
+    row.appendChild(lbl);
+
+    if (field.type === 'color') {
+      const wrap = document.createElement('div');
+      wrap.className = 'be-form-modal__color-row';
+      const colorPick = document.createElement('input');
+      colorPick.type = 'color';
+      colorPick.className = 'be-form-modal__color-pick';
+      colorPick.value = /^#[0-9a-f]{6}$/i.test(field.value ?? '') ? field.value! : '#000000';
+      const textInp = document.createElement('input');
+      textInp.type = 'text';
+      textInp.className = 'be-field__input';
+      textInp.placeholder = field.placeholder ?? '#000000 ou red ou rgb(…)';
+      textInp.value = field.value ?? '';
+      colorPick.addEventListener('input', () => { textInp.value = colorPick.value; });
+      textInp.addEventListener('input', () => {
+        if (/^#[0-9a-f]{6}$/i.test(textInp.value)) colorPick.value = textInp.value;
+      });
+      textInp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); this.submit(); }
+        if (e.key === 'Escape') { e.preventDefault(); this.close(); }
+      });
+      wrap.appendChild(colorPick);
+      wrap.appendChild(textInp);
+      row.appendChild(wrap);
+      this.inputs.set(field.key, textInp);
+      container.appendChild(row);
+      return;
+    }
+
+    if (field.type === 'textarea') {
+      const ta = document.createElement('textarea');
+      ta.className = 'be-field__textarea';
+      ta.rows = field.rows ?? 6;
+      if (field.placeholder) ta.placeholder = field.placeholder;
+      if (field.value) ta.value = field.value;
+      ta.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); this.close(); }
+      });
+      this.inputs.set(field.key, ta);
+      row.appendChild(ta);
+      container.appendChild(row);
+      return;
+    }
+
+    let input: HTMLInputElement | HTMLSelectElement;
+
+    if (field.type === 'select' && field.options) {
+      const sel = document.createElement('select');
+      sel.className = 'be-field__select';
+      for (const opt of field.options) {
+        const o = document.createElement('option');
+        o.value = opt.value; o.textContent = opt.label;
+        sel.appendChild(o);
+      }
+      if (field.value) sel.value = field.value;
+      input = sel;
+    } else {
+      const inp = document.createElement('input');
+      inp.type = field.type === 'url' ? 'url' : field.type === 'number' ? 'number' : 'text';
+      inp.className = 'be-field__input';
+      if (field.placeholder) inp.placeholder = field.placeholder;
+      if (field.value) inp.value = field.value;
+      if (field.required) inp.required = true;
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); this.submit(); }
+        if (e.key === 'Escape') { e.preventDefault(); this.close(); }
+      });
+      input = inp;
+    }
+
+    this.inputs.set(field.key, input);
+    row.appendChild(input);
+    container.appendChild(row);
   }
 
   private submit(): void {
     const opts = this.currentOpts;
     if (!opts) return;
-    const allFields = opts.tabs ? opts.tabs.flatMap(t => t.fields) : (opts.fields ?? []);
+    const flattenRows = (rows: WysiwygFormRow[]): WysiwygFormField[] =>
+      rows.flatMap(r => Array.isArray(r) ? r : [r]);
+    const allFields = opts.tabs ? opts.tabs.flatMap(t => flattenRows(t.fields)) : flattenRows(opts.fields ?? []);
 
     for (const field of allFields) {
       if (field.required) {
@@ -3030,7 +3123,7 @@ class WysiwygFormModal {
         if (!val) {
           // Basculer sur l'onglet contenant le champ invalide
           if (opts.tabs) {
-            const tabIdx = opts.tabs.findIndex(t => t.fields.some(f => f.key === field.key));
+            const tabIdx = opts.tabs.findIndex(t => flattenRows(t.fields).some(f => f.key === field.key));
             if (tabIdx >= 0) {
               const tabs = this.bodyEl.querySelectorAll<HTMLElement>('.be-form-modal__tab');
               const panes = this.bodyEl.querySelectorAll<HTMLElement>('.be-form-modal__pane');
@@ -3366,6 +3459,7 @@ const icn = {
   math:         S('<path d="M18 4H6l6 8-6 8h12"/>'),
   excalidraw:   S('<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>'),
   draw:         S('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 15l3-4 2 2 3-5 3 7" stroke-linecap="round" stroke-linejoin="round"/>'),
+  qrcode:       S('<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="16" y="16" width="2" height="2"/><rect x="20" y="14" width="1" height="3"/><rect x="14" y="20" width="3" height="1"/>'),
   specialChar:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 3C8 3 5 7 5 12s3 9 7 9 7-4 7-9"/><path d="M16 8l-2 4h4l-2 4"/></svg>`,
   image:        S('<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>'),
   link:         S('<path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>'),
