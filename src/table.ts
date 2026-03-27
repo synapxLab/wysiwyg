@@ -1,6 +1,5 @@
-// ─── Table utilities ──────────────────────────────────────────────────────────
-// Fonctions partagées pour la gestion de tableaux (WysiwygEditor).
-// Extrait de @synapxlab/buildereditor/src/blocks/TableBlock.ts.
+// @synapxlab/wysiwyg — src/table.ts
+// Composant tableau : rendu, parsing HTML↔état, widget interactif (fusion, scission, ajout/suppression lignes/colonnes).
 
 import { pushModal, popModal, installEscapeHandler } from './modalStack';
 

@@ -1,6 +1,5 @@
-// ─── Modal Stack ──────────────────────────────────────────────────────────────
-// Pile LIFO pour la gestion de la touche Escape : ferme uniquement la modale
-// la plus haute, empêchant la fermeture en cascade de plusieurs modales.
+// @synapxlab/wysiwyg — src/modalStack.ts
+// Pile LIFO pour la touche Escape : ferme uniquement la modale au premier plan, sans fermeture en cascade.
 
 const stack: Array<() => void> = [];
 

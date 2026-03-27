@@ -11,6 +11,11 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    minify: 'terser',
+    terserOptions: {
+      compress: { passes: 2, drop_console: true },
+      mangle: true,
+    },
     lib: {
       entry: resolve(__dirname, 'src/index.ts'),
       name: 'SynapxWysiwyg',
@@ -18,6 +23,7 @@ export default defineConfig({
       fileName: (format) => `wysiwyg.${format}.js`,
     },
     rollupOptions: {
+      treeshake: { moduleSideEffects: false },
       output: {
         assetFileNames: 'wysiwyg.[ext]',
       },

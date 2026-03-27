@@ -90,6 +90,7 @@
     "rollup": "^4.59.0",
     "sass": "^1.97.3",
     "source-map-js": "^1.2.1",
+    "terser": "^5.46.1",
     "tinyglobby": "^0.2.15",
     "typescript": "^6.0.2",
     "vite": "^7.3.1"

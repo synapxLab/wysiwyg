@@ -1,5 +1,5 @@
-// ─── WysiwygEditor ────────────────────────────────────────────────────────────
-// Éditeur WYSIWYG riche (contenteditable).
+// @synapxlab/wysiwyg — src/WysiwygEditor.ts
+// Classe principale de l'éditeur WYSIWYG : rendu contenteditable, toolbar, source HTML, inspecteur d'éléments.
 
 import type { TableProps } from './table';
 /** Interface minimale attendue d'un DrawEditor injectable. */
@@ -2604,7 +2604,6 @@ export class WysiwygEditor {
   // ── Status bar / word count ────────────────────────────────────────────────
 
   private buildStatusBar(): void {
-    if (this.opts.wordCount === false) return;
     this.statusBarEl = document.createElement('div');
     this.statusBarEl.className = 'be-wysiwyg__statusbar';
 
@@ -2613,9 +2612,11 @@ export class WysiwygEditor {
     brand.textContent = `Adliss.fr v${__PKG_VERSION__}`;
     this.statusBarEl.appendChild(brand);
 
-    this.wordCountEl = document.createElement('span');
-    this.wordCountEl.className = 'be-wysiwyg__wordcount';
-    this.statusBarEl.appendChild(this.wordCountEl);
+    if (this.opts.wordCount !== false) {
+      this.wordCountEl = document.createElement('span');
+      this.wordCountEl.className = 'be-wysiwyg__wordcount';
+      this.statusBarEl.appendChild(this.wordCountEl);
+    }
 
     const grip = document.createElement('div');
     grip.className = 'be-wysiwyg__resize-grip';
@@ -2744,77 +2745,173 @@ export class WysiwygEditor {
     return btn;
   }
 
-  private makeHeadingSelect(): HTMLSelectElement {
+  private makeSelect(mod: string, title: string, cmd: string, opts: string[][], applyFont = false): HTMLSelectElement {
     const sel = document.createElement('select');
-    sel.className = 'be-wysiwyg__select be-wysiwyg__select--heading';
-    sel.title = 'Format de paragraphe';
-    [
-      ['(Format)', ''],
-      ['Normal',   'p'],
-      ['H1',       'h1'],
-      ['H2',       'h2'],
-      ['H3',       'h3'],
-      ['H4',       'h4'],
-      ['H5',       'h5'],
-      ['H6',       'h6'],
-      ['Citation', 'blockquote'],
-      ['Préformat.','pre'],
-    ].forEach(([l, v]) => {
-      const o = document.createElement('option');
-      o.value = v; o.textContent = l;
+    sel.className = `be-wysiwyg__select be-wysiwyg__select--${mod}`; sel.title = title;
+    opts.forEach(([l, v]) => {
+      const o = document.createElement('option'); o.value = v; o.textContent = l;
+      if (applyFont && v) o.style.fontFamily = v;
       sel.appendChild(o);
     });
     sel.addEventListener('mousedown', () => this.saveRange());
-    sel.addEventListener('change', () => {
-      if (sel.value) { this.restoreRange(); this.exec('formatBlock', sel.value); }
-      sel.selectedIndex = 0;
-    });
+    sel.addEventListener('change', () => { if (sel.value) { this.restoreRange(); this.exec(cmd, sel.value); } sel.selectedIndex = 0; });
     return sel;
+  }
+
+  private makeHeadingSelect(): HTMLSelectElement {
+    return this.makeSelect('heading', 'Format de paragraphe', 'formatBlock', [
+      ['(Format)', ''], ['Normal', 'p'], ['H1', 'h1'], ['H2', 'h2'], ['H3', 'h3'],
+      ['H4', 'h4'], ['H5', 'h5'], ['H6', 'h6'], ['Citation', 'blockquote'], ['Préformat.', 'pre'],
+    ]);
   }
 
   private makeFontSelect(): HTMLSelectElement {
-    const sel = document.createElement('select');
-    sel.className = 'be-wysiwyg__select be-wysiwyg__select--font'; sel.title = 'Police';
-    [['(Police)', ''], ['Arial', 'Arial, sans-serif'], ['Georgia', 'Georgia, serif'],
-     ["Courier New", "'Courier New', monospace"], ['Verdana', 'Verdana, sans-serif'],
-     ["Times New Roman", "'Times New Roman', serif"], ["Trebuchet MS", "'Trebuchet MS', sans-serif"],
-     ['Impact', 'Impact, sans-serif']].forEach(([l, v]) => {
-      const o = document.createElement('option'); o.value = v; o.textContent = l;
-      if (v) o.style.fontFamily = v;
-      sel.appendChild(o);
-    });
-    sel.addEventListener('mousedown', () => this.saveRange());
-    sel.addEventListener('change', () => { if (sel.value) { this.restoreRange(); this.exec('fontName', sel.value); } sel.selectedIndex = 0; });
-    return sel;
+    return this.makeSelect('font', 'Police', 'fontName', [
+      ['(Police)', ''], ['Arial', 'Arial, sans-serif'], ['Georgia', 'Georgia, serif'],
+      ["Courier New", "'Courier New', monospace"], ['Verdana', 'Verdana, sans-serif'],
+      ["Times New Roman", "'Times New Roman', serif"], ["Trebuchet MS", "'Trebuchet MS', sans-serif"],
+      ['Impact', 'Impact, sans-serif'],
+    ], true);
   }
 
   private makeFontSizeSelect(): HTMLSelectElement {
-    const sel = document.createElement('select');
-    sel.className = 'be-wysiwyg__select be-wysiwyg__select--size'; sel.title = 'Taille';
-    [['(Taille)', ''], ['8px', '1'], ['10px', '2'], ['12px', '3'], ['14px', '4'],
-     ['18px', '5'], ['24px', '6'], ['36px', '7']].forEach(([l, v]) => {
-      const o = document.createElement('option'); o.value = v; o.textContent = l; sel.appendChild(o);
-    });
-    sel.addEventListener('mousedown', () => this.saveRange());
-    sel.addEventListener('change', () => { if (sel.value) { this.restoreRange(); this.exec('fontSize', sel.value); } sel.selectedIndex = 0; });
-    return sel;
+    return this.makeSelect('size', 'Taille', 'fontSize', [
+      ['(Taille)', ''], ['8px', '1'], ['10px', '2'], ['12px', '3'], ['14px', '4'],
+      ['18px', '5'], ['24px', '6'], ['36px', '7'],
+    ]);
   }
 
   private makeColorPicker(cmd: 'foreColor' | 'backColor', defaultColor: string, title: string, icon: string): HTMLElement {
+    const STORAGE_KEY = `be-wysiwyg-custom-colors-${cmd}`;
+    const PALETTE = [
+      '#000000','#434343','#666666','#999999','#b7b7b7','#cccccc','#d9d9d9','#ffffff',
+      '#ff0000','#ff4500','#ff9900','#ffff00','#00ff00','#00ffff','#4a86e8','#9900ff',
+      '#f4cccc','#fce5cd','#fff2cc','#d9ead3','#d0e0e3','#cfe2f3','#d9d2e9','#ead1dc',
+      '#ea9999','#f9cb9c','#ffe599','#b6d7a8','#a2c4c9','#9fc5e8','#b4a7d6','#e06666',
+      '#cc0000','#e69138','#f1c232','#6aa84f','#45818e','#3d85c6','#674ea7','#a64d79',
+    ];
+
+    const loadCustom = (): string[] => {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
+    };
+    const saveCustom = (colors: string[]) => localStorage.setItem(STORAGE_KEY, JSON.stringify(colors));
+
     const wrap = document.createElement('span');
     wrap.className = 'be-wysiwyg__color-wrap';
+
+    // Bouton toolbar
     const btn = document.createElement('button');
     btn.type = 'button'; btn.className = 'be-wysiwyg__btn be-wysiwyg__color-btn'; btn.title = title;
     btn.innerHTML = icon;
     const swatch = document.createElement('span');
     swatch.className = 'be-wysiwyg__color-swatch'; swatch.style.background = defaultColor;
     btn.appendChild(swatch);
-    const input = document.createElement('input');
-    input.type = 'color'; input.value = defaultColor; input.className = 'be-wysiwyg__color-input';
-    btn.addEventListener('mousedown', (e) => { e.preventDefault(); this.saveRange(); input.click(); });
-    input.addEventListener('input', () => { swatch.style.background = input.value; });
-    input.addEventListener('change', () => { swatch.style.background = input.value; this.restoreRange(); this.exec(cmd, input.value); });
-    wrap.appendChild(btn); wrap.appendChild(input);
+
+    // Panel dropdown
+    const panel = document.createElement('div');
+    panel.className = 'be-wysiwyg__color-panel';
+    panel.style.display = 'none';
+
+    const applyColor = (color: string) => {
+      swatch.style.background = color;
+      this.restoreRange();
+      this.exec(cmd, color);
+      panel.style.display = 'none';
+    };
+
+    // Palette fixe
+    const grid = document.createElement('div');
+    grid.className = 'be-wysiwyg__color-grid';
+    PALETTE.forEach(color => {
+      const cell = document.createElement('span');
+      cell.className = 'be-wysiwyg__color-cell';
+      cell.style.background = color;
+      cell.title = color;
+      cell.addEventListener('mousedown', (e) => { e.preventDefault(); applyColor(color); });
+      grid.appendChild(cell);
+    });
+    panel.appendChild(grid);
+
+    // Section couleurs personnalisées
+    const customLabel = document.createElement('div');
+    customLabel.className = 'be-wysiwyg__color-label';
+    customLabel.textContent = 'Mes couleurs';
+    panel.appendChild(customLabel);
+
+    const customRow = document.createElement('div');
+    customRow.className = 'be-wysiwyg__color-grid';
+
+    const renderCustom = () => {
+      customRow.innerHTML = '';
+      const customs = loadCustom();
+      for (let i = 0; i < 8; i++) {
+        const cell = document.createElement('span');
+        cell.className = 'be-wysiwyg__color-cell';
+        if (customs[i]) {
+          cell.style.background = customs[i];
+          cell.title = customs[i];
+          cell.addEventListener('mousedown', (e) => { e.preventDefault(); applyColor(customs[i]); });
+        } else {
+          cell.classList.add('be-wysiwyg__color-cell--empty');
+        }
+        customRow.appendChild(cell);
+      }
+      // Bouton +
+      const addBtn = document.createElement('span');
+      addBtn.className = 'be-wysiwyg__color-cell be-wysiwyg__color-cell--add';
+      addBtn.title = 'Ajouter une couleur';
+      addBtn.textContent = '+';
+      addBtn.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        pickerOpen = true;
+        pickerHint.style.display = 'block';
+        void panel.offsetWidth; // force reflow — garantit des coords correctes dès la 1ère ouverture
+        const rect = panel.getBoundingClientRect();
+        picker.style.left = `${rect.right + 4}px`;
+        picker.style.top  = `${rect.top}px`;
+        picker.click();
+      });
+      customRow.appendChild(addBtn);
+    };
+
+    let pickerOpen = false;
+    const picker = document.createElement('input');
+    picker.type = 'color';
+    picker.style.cssText = 'position:fixed;bottom:0;right:0;width:0;height:0;opacity:0;pointer-events:none;';
+    document.body.appendChild(picker);
+    picker.addEventListener('change', () => {
+      pickerOpen = false;
+      pickerHint.style.display = 'none';
+      const customs = loadCustom();
+      if (!customs.includes(picker.value)) {
+        customs.unshift(picker.value);
+        if (customs.length > 8) customs.pop();
+        saveCustom(customs);
+        renderCustom();
+      }
+    });
+    picker.addEventListener('blur', () => { pickerOpen = false; pickerHint.style.display = 'none'; });
+
+    const pickerHint = document.createElement('div');
+    pickerHint.className = 'be-wysiwyg__color-hint';
+    pickerHint.textContent = 'Cliquer OK pour enregistrer la couleur';
+    pickerHint.style.display = 'none';
+    panel.appendChild(customRow);
+    panel.appendChild(pickerHint);
+    renderCustom();
+
+    btn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      this.saveRange();
+      panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+    });
+    document.addEventListener('mousedown', (e) => {
+      if (pickerOpen) return;
+      if (!wrap.contains(e.target as Node)) panel.style.display = 'none';
+    });
+
+    wrap.appendChild(btn);
+    wrap.appendChild(panel);
     return wrap;
   }
 

@@ -1,3 +1,5 @@
+// @synapxlab/wysiwyg — src/main.ts
+// Point d'entrée de la démo locale : initialise l'éditeur avec Mermaid, KaTeX et Excalidraw.
 import { WysiwygEditor } from './index';
 import mermaid from 'mermaid';
 import katex from 'katex';
