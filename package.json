@@ -1,6 +1,6 @@
 {
   "name": "@synapxlab/wysiwyg",
-  "version": "1.3.9",
+  "version": "1.3.10",
   "description": "WYSIWYG rich-text editor · pagebuilder — native SVG drawing, KaTeX math, zero runtime dependencies, TypeScript + SCSS",
   "keywords": [
     "wysiwyg",
