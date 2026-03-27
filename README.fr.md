@@ -378,6 +378,90 @@ Toutes les variables sont scopées à `.be-wysiwyg`. Surchargez-les sur le conte
 
 ---
 
+## Rendu du contenu hors éditeur
+
+Le HTML produit par `editor.getValue()` est du HTML standard avec quelques classes spécifiques à l'éditeur (`.be-mermaid`, `.be-math`, `.be-qr`, `.be-draw`). Pour l'afficher correctement hors de l'éditeur, enveloppez-le dans un conteneur `.wysiwyg_view` et appliquez le CSS ci-dessous.
+
+### Côté serveur (Twig / PHP)
+
+```twig
+{# Twig #}
+<div class="wysiwyg_view">
+  {{ content|raw }}
+</div>
+```
+
+```php
+// PHP
+echo '<div class="wysiwyg_view">' . $html . '</div>';
+// ou
+$twig->createTemplate($html);
+```
+
+### CSS requis pour `.wysiwyg_view`
+
+Intégrez ce CSS dans votre feuille de styles :
+
+```css
+.wysiwyg_view {
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 1rem; line-height: 1.75; color: #111827;
+  max-width: 100%; word-break: break-word;
+}
+.wysiwyg_view h1,.wysiwyg_view h2,.wysiwyg_view h3,
+.wysiwyg_view h4,.wysiwyg_view h5,.wysiwyg_view h6 {
+  margin: 1.4em 0 .5em; line-height: 1.3; font-weight: 700; color: #0f172a;
+}
+.wysiwyg_view h1 { font-size: 2rem; }
+.wysiwyg_view h2 { font-size: 1.5rem; border-bottom: 1px solid #e5e7eb; padding-bottom: .3em; }
+.wysiwyg_view h3 { font-size: 1.25rem; }
+.wysiwyg_view p  { margin: 0 0 1em; }
+.wysiwyg_view ul,.wysiwyg_view ol { margin: 0 0 1em 1.5em; padding: 0; }
+.wysiwyg_view li { margin-bottom: .3em; }
+.wysiwyg_view a  { color: #2563eb; text-decoration: underline; }
+.wysiwyg_view blockquote {
+  border-left: 4px solid #E37D10; margin: 1em 0; padding: .5em 1em;
+  background: rgba(227,125,16,.06); color: #4b5563; border-radius: 0 6px 6px 0;
+}
+.wysiwyg_view pre {
+  background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 1em 1.2em;
+  overflow-x: auto; font-size: .88rem; font-family: 'Courier New', monospace;
+}
+.wysiwyg_view code {
+  font-family: 'Courier New', monospace; font-size: .88em;
+  background: #f1f5f9; color: #be185d; padding: .1em .35em; border-radius: 3px;
+}
+.wysiwyg_view pre code { background: none; color: inherit; padding: 0; }
+.wysiwyg_view img { max-width: 100%; height: auto; border-radius: 4px; }
+.wysiwyg_view table { width: 100%; border-collapse: collapse; margin: 0 0 1em; }
+.wysiwyg_view th,.wysiwyg_view td { border: 1px solid #e5e7eb; padding: 8px 12px; text-align: left; }
+.wysiwyg_view th { background: #f8fafc; font-weight: 600; }
+.wysiwyg_view tr:nth-child(even) td { background: #f9fafb; }
+/* Éléments spéciaux — SVG déjà intégré, aucun re-rendu nécessaire */
+.wysiwyg_view .be-mermaid,.wysiwyg_view .be-draw {
+  display: block; overflow: auto; margin: 1em 0; text-align: center;
+}
+.wysiwyg_view .be-mermaid svg,.wysiwyg_view .be-draw svg { max-width: 100%; height: auto; }
+.wysiwyg_view .be-math { display: inline-block; vertical-align: middle; }
+.wysiwyg_view .be-math[data-math-display="1"] { display: block; text-align: center; margin: 1em 0; }
+.wysiwyg_view .be-qr { display: inline-block; line-height: 0; }
+.wysiwyg_view .be-qr svg { display: block; }
+```
+
+### CSS KaTeX
+
+Si le contenu peut contenir des formules mathématiques (`.be-math`), chargez la feuille de style KaTeX :
+
+```html
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16/dist/katex.min.css" crossorigin="anonymous" />
+```
+
+### Aucun JavaScript nécessaire
+
+Tous les éléments spéciaux (diagrammes Mermaid, dessins SVG, QR codes, formules KaTeX) sont stockés avec leur **SVG / HTML déjà intégré** dans l'élément. Aucun JavaScript côté client n'est nécessaire pour les afficher — le contenu est statique et entièrement compatible avec le rendu côté serveur.
+
+---
+
 ## TypeScript
 
 Les déclarations de types sont incluses. Compatible **TypeScript 5 et 6**.
@@ -405,6 +489,7 @@ import type { WysiwygOptions, WysiwygToolbarConfig, WysiwygTwigSnippet } from '@
 | **Tableaux** | ✅ fusion/scission | ✅ | ✅ | ❌ | ❌ |
 | **Éditeur source HTML** | ✅ avec coloration | ✅ | ✅ | ❌ | ❌ |
 | **Inspecteur d'éléments** | ✅ intégré | ❌ | ❌ | ❌ | ❌ |
+| **Rendu statique (SSR-ready)** | ✅ SVG inline, sans JS | ⚠️ partiel | ⚠️ partiel | ⚠️ partiel | ❌ |
 | **ESM + CJS** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Framework agnostique** | ✅ | ✅ | ✅ | ✅ | ✅ |
 
