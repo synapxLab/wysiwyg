@@ -316,6 +316,53 @@ Drag the grip icon in the bottom-right corner of the status bar to resize the ed
 
 ---
 
+## Custom toolbar buttons
+
+Inject any number of fully custom buttons at the end of the toolbar via the `customButtons` option.
+
+```ts
+import type { WysiwygCustomButton } from '@synapxlab/wysiwyg';
+
+new WysiwygEditor({
+  el: '#editor',
+  customButtons: [
+    {
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>',
+      title: 'Download HTML',
+      onClick: (html, editor) => {
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'export.html';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      },
+    },
+    {
+      icon: '⏺',
+      title: 'Start recording',
+      className: 'my-rec-btn',
+      onClick: (html, editor) => {
+        console.log('REC', html);
+      },
+    },
+  ],
+});
+```
+
+### `WysiwygCustomButton` interface
+
+| Property | Type | Required | Description |
+|---|---|---|---|
+| `icon` | `string` | ✅ | Raw HTML (SVG, emoji, text) rendered inside the button |
+| `title` | `string` | ✅ | Tooltip shown on hover |
+| `onClick` | `(html: string, editor: WysiwygEditor) => void` | ✅ | Called on click. Receives the current HTML value and the editor instance |
+| `className` | `string` | — | Extra CSS class added to the `<button>` element |
+
+> **Note:** `mousedown` is automatically `preventDefault()`-ed so the editor selection is preserved when the button is clicked.
+
+---
+
 ## Twig snippets (opt-in)
 
 Enable with `toolbar: { twig: true }`. Opens a panel with ready-made snippets in 6 built-in categories (variables, conditions, loops, filters, client, invoice). Snippets are inserted as plain text so Twig templating engines can process them.

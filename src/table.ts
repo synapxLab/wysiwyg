@@ -10,6 +10,8 @@ export interface CellData {
   type: 'td' | 'th';
   width: string;
   height: string;
+  padding: string | null;
+  border: string | null;
   colspan: number;
   rowspan: number;
   textWrap: boolean;
@@ -40,10 +42,16 @@ export interface TableProps {
 export function blankCell(type: 'td' | 'th' = 'td'): CellData {
   return {
     content: '', type, width: '', height: '',
+    padding: null, border: null,
     colspan: 1, rowspan: 1, textWrap: true,
     textAlign: '', verticalAlign: '',
     backgroundColor: '', borderColor: '', _hidden: false,
   };
+}
+
+function getBorderSize(border: string): number {
+  const match = String(border || '').match(/^(\d+)px/i);
+  return match ? parseInt(match[1], 10) || 0 : 0;
 }
 
 export function inferType(r: number, c: number, headerType: string): 'td' | 'th' {
@@ -243,9 +251,23 @@ export function buildTablePropsPanel(
       { v: 'none', l: 'Aucun' }, { v: 'first-row', l: 'Première ligne' },
       { v: 'first-col', l: 'Première colonne' }, { v: 'both', l: 'Les deux' },
     ], state.headerType, v => { state.headerType = v as TableProps['headerType']; state.cells = ensureCells(state.cells, state.rows, state.cols, state.headerType); save(); }));
-    field(tableGrid, 'Bordure (px)', mkInput('number', String(state.borderSize), '0', v => { state.borderSize = Math.max(0, parseInt(v) || 0); save(); }));
+    field(tableGrid, 'Bordure (px)', mkInput('number', String(state.borderSize), '0', v => {
+      state.borderSize = Math.max(0, parseInt(v) || 0);
+      state.cells.forEach((row) => row.forEach((cell) => {
+        if (cell._hidden) return;
+        cell.border = state.borderSize > 0 ? `${state.borderSize}px solid ${cell.borderColor || '#d1d5db'}` : '';
+      }));
+      save();
+    }));
     field(tableGrid, 'Espacement (px)', mkInput('number', String(state.cellSpacing), '0', v => { state.cellSpacing = Math.max(0, parseInt(v) || 0); save(); }));
-    field(tableGrid, 'Marge interne (px)', mkInput('number', String(state.cellPadding), '8', v => { state.cellPadding = Math.max(0, parseInt(v) || 0); save(); }));
+    field(tableGrid, 'Marge interne (px)', mkInput('number', String(state.cellPadding), '8', v => {
+      state.cellPadding = Math.max(0, parseInt(v) || 0);
+      state.cells.forEach((row) => row.forEach((cell) => {
+        if (cell._hidden) return;
+        cell.padding = `${state.cellPadding}px`;
+      }));
+      save();
+    }));
     field(tableGrid, 'Alignement', mkSelect([
       { v: 'left', l: 'Gauche' }, { v: 'center', l: 'Centré' }, { v: 'right', l: 'Droite' },
     ], state.textAlign, v => { state.textAlign = v; save(); }));
@@ -276,7 +298,12 @@ export function buildTablePropsPanel(
       { v: '', l: 'Hérité' }, { v: 'top', l: 'Haut' }, { v: 'middle', l: 'Milieu' }, { v: 'bottom', l: 'Bas' },
     ], cd.verticalAlign, v => { state.cells[selR][selC].verticalAlign = v; save(); }));
     field(cellGrid, 'Fond', mkColor(cd.backgroundColor || '#ffffff', v => { state.cells[selR][selC].backgroundColor = v; save(); }));
-    field(cellGrid, 'Bordure', mkColor(cd.borderColor || '#d1d5db', v => { state.cells[selR][selC].borderColor = v; save(); }));
+    field(cellGrid, 'Bordure', mkColor(cd.borderColor || '#d1d5db', v => {
+      state.cells[selR][selC].borderColor = v;
+      const borderSize = getBorderSize(state.cells[selR][selC].border || '') || state.borderSize || 1;
+      state.cells[selR][selC].border = borderSize > 0 ? `${borderSize}px solid ${v}` : '';
+      save();
+    }));
 
     const wrapWrap = document.createElement('label');
     wrapWrap.className = 'be-field__label';
@@ -438,6 +465,8 @@ export function parseHtmlTableToState(table: HTMLTableElement): TableProps {
         type: cell.tagName.toLowerCase() as 'td' | 'th',
         width: cst.width || '',
         height: cst.height || '',
+        padding: cst.padding || '',
+        border: cst.border || '',
         colspan,
         rowspan,
         textWrap: cst.whiteSpace !== 'nowrap',

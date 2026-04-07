@@ -40,6 +40,8 @@ import { pushModal, popModal, installEscapeHandler } from './modalStack';
  * new WysiwygEditor({ toolbar: { twig: true } })
  */
 export interface WysiwygToolbarConfig {
+  /** Bouton Propriétés du document (défaut: false) */
+  documentProps?: boolean;
   /** Bouton Source HTML ↔ WYSIWYG (défaut: true) */
   source?: boolean;
   /** Bouton Ajouter un paragraphe — échappe le bloc courant (défaut: true) */
@@ -86,6 +88,8 @@ export interface WysiwygToolbarConfig {
   underline?: boolean;
   /** Bouton Barré (défaut: true) */
   strike?: boolean;
+  /** Bouton Basculer Maj/Min — lowercase ↔ uppercase sur la sélection (défaut: true) */
+  caseSwitch?: boolean;
   /** Boutons Indice / Exposant (défaut: true) */
   script?: boolean;
   /** Sélecteur Couleur du texte (défaut: true) */
@@ -117,6 +121,8 @@ export interface WysiwygToolbarConfig {
 }
 
 export interface WysiwygOptions {
+  /** Profil d'édition du document. `pdf` adapte les réglages et le panneau Document. */
+  documentProfile?: 'web' | 'pdf';
   /**
    * Configuration individuelle des boutons de la toolbar.
    * Chaque clé est un groupe ; sa valeur booléenne l'active ou le masque.
@@ -224,6 +230,47 @@ export interface WysiwygOptions {
    * })
    */
   twigSnippets?: WysiwygTwigSnippet[];
+  /**
+   * Texte personnalisé affiché dans la barre de statut (marque).
+   * Si vide ou absent, affiche `Adliss.fr v{version}`.
+   *
+   * @example
+   * new WysiwygEditor({ statusbarLabel: 'MonApp v2.0' })
+   * new WysiwygEditor({ statusbarLabel: '' }) // → "Adliss.fr v1.x.x"
+   */
+  statusbarLabel?: string;
+  /**
+   * Boutons personnalisés ajoutés en fin de toolbar, dans leur propre section séparée.
+   * Chaque bouton reçoit la valeur HTML courante de l'éditeur au clic via `onClick(html, editor)`.
+   *
+   * @example
+   * new WysiwygEditor({
+   *   customButtons: [
+   *     {
+   *       icon: '<svg>…</svg>',  // SVG ou texte court (ex: "REC")
+   *       title: 'Enregistrer',
+   *       onClick: (html, editor) => { fetch('/save', { method:'POST', body: html }); }
+   *     }
+   *   ]
+   * })
+   */
+  customButtons?: WysiwygCustomButton[];
+}
+
+/** Bouton personnalisé injectable dans la toolbar. */
+export interface WysiwygCustomButton {
+  /** Contenu du bouton : SVG string ou texte court (max ~4 caractères). */
+  icon: string;
+  /** Infobulle affichée au survol. */
+  title: string;
+  /**
+   * Callback appelé au clic.
+   * @param html  Valeur HTML courante de l'éditeur.
+   * @param editor Instance de l'éditeur (pour appeler getValue / setValue / focus).
+   */
+  onClick: (html: string, editor: WysiwygEditor) => void;
+  /** Classe CSS supplémentaire ajoutée sur le bouton (optionnel). */
+  className?: string;
 }
 
 /** Un snippet Twig injectables dans le panneau Twig. */
@@ -261,7 +308,9 @@ export class WysiwygEditor {
   private wordCountEl!: HTMLElement;
   private imgResizerEl: HTMLElement | null = null;
   private resizingImg: HTMLImageElement | null = null;
+  private imgMoveCleanup: (() => void) | null = null;
   private drawEditor: DrawEditorLike | null = null;
+  private fieldIdentitySeq = 0;
 
   constructor(opts: WysiwygOptions = {}) {
     this.opts = opts;
@@ -292,7 +341,7 @@ export class WysiwygEditor {
   }
 
   setValue(html: string): void {
-    const content = html || '<p></p>';
+    const content = html ?? '';
     if (this.sourceMode) this.toggleSourceMode(); // ferme la source avant d'injecter le nouveau contenu
     this.applyHtml(content);
     this.sourceEl.value = content;
@@ -316,7 +365,7 @@ export class WysiwygEditor {
     this.editorEl.className = 'be-wysiwyg__editor';
     this.editorEl.contentEditable = 'true';
     this.editorEl.spellcheck = true;
-    this.editorEl.innerHTML = '<p></p>';
+    this.editorEl.innerHTML = '';
 
     this.editorEl.addEventListener('keyup', () => this.syncState());
     this.editorEl.addEventListener('mouseup', () => this.syncState());
@@ -368,7 +417,19 @@ export class WysiwygEditor {
       const html = renderTableHtml(state);
       widget.replaceWith(html);
     });
-    return clone.innerHTML;
+    const html = clone.innerHTML;
+    return this.isEmptyHtml(html) ? '' : html;
+  }
+
+  private isEmptyHtml(html: string): boolean {
+    const normalized = String(html)
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/\u00a0/g, ' ')
+      .replace(/<br\s*\/?>/gi, '')
+      .replace(/<p>\s*<\/p>/gi, '')
+      .replace(/<div>\s*<\/div>/gi, '')
+      .trim();
+    return normalized === '';
   }
 
   private applyHtml(html: string): void {
@@ -535,6 +596,13 @@ export class WysiwygEditor {
     });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this.hideImgResizer();
+      if ((e.key === 'Delete' || e.key === 'Backspace') && this.resizingImg) {
+        e.preventDefault();
+        const img = this.resizingImg;
+        this.hideImgResizer();
+        img.remove();
+        this.onChange?.();
+      }
     });
     // Reposition on editor scroll
     this.editorEl.addEventListener('scroll', () => {
@@ -580,6 +648,18 @@ export class WysiwygEditor {
       const btn = this.makeImgTbBtn(a.icon, a.title, () => { a.fn(); this.onChange?.(); requestAnimationFrame(() => this.positionImgResizer(img)); });
       tb.appendChild(btn);
     });
+
+    if ((this.opts.documentProfile ?? 'web') === 'pdf') {
+      const moveBtn = this.makeImgTbBtn(
+        S2('<path d="M12 3v18"/><path d="M3 12h18"/><polyline points="9 6 12 3 15 6"/><polyline points="18 9 21 12 18 15"/><polyline points="9 18 12 21 15 18"/><polyline points="6 9 3 12 6 15"/>'),
+        'Position libre dans la page PDF',
+        () => {
+          this.enablePdfImagePositioning(img);
+          requestAnimationFrame(() => this.positionImgResizer(img));
+        },
+      );
+      tb.appendChild(moveBtn);
+    }
 
     // Séparateur
     const sep = document.createElement('span');
@@ -638,6 +718,7 @@ export class WysiwygEditor {
     };
     setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
 
+    this.bindPdfImageMove(img);
     this.positionImgResizer(img);
   }
 
@@ -664,9 +745,150 @@ export class WysiwygEditor {
   }
 
   private hideImgResizer(): void {
+    if (this.imgMoveCleanup) {
+      this.imgMoveCleanup();
+      this.imgMoveCleanup = null;
+    }
     this.imgResizerEl?.remove();
     this.imgResizerEl = null;
     this.resizingImg = null;
+  }
+
+  private bindPdfImageMove(img: HTMLImageElement): void {
+    if ((this.opts.documentProfile ?? 'web') !== 'pdf') return;
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      if (this.sourceMode) return;
+      this.startImageMove(e, img);
+    };
+    img.style.cursor = 'move';
+    img.addEventListener('mousedown', onMouseDown);
+    this.imgMoveCleanup = () => {
+      img.removeEventListener('mousedown', onMouseDown);
+      img.style.removeProperty('cursor');
+    };
+  }
+
+  private ensurePdfImageWrapper(img: HTMLImageElement): HTMLElement | null {
+    const parent = img.parentElement;
+    if (!parent) return null;
+    if (parent.classList.contains('be-pdf-image-layer')) {
+      if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
+      return parent;
+    }
+    if (!['TD', 'TH'].includes(parent.tagName)) return null;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'be-pdf-image-layer';
+    wrapper.style.position = 'relative';
+    wrapper.style.width = '100%';
+    wrapper.style.minHeight = this.toPdfLength(Math.max(img.offsetHeight || 0, 32));
+    wrapper.style.overflow = 'visible';
+
+    parent.insertBefore(wrapper, img);
+    wrapper.appendChild(img);
+    return wrapper;
+  }
+
+  private getPdfImageContainer(img: HTMLImageElement): HTMLElement | null {
+    const wrapper = this.ensurePdfImageWrapper(img);
+    if (wrapper) return wrapper;
+    let node = img.parentElement;
+    while (node && node !== this.editorEl) {
+      if (getComputedStyle(node).position !== 'static') return node;
+      node = node.parentElement;
+    }
+    const root = this.getDocumentRootElement() ?? img.parentElement;
+    if (!root) return null;
+    if (getComputedStyle(root).position === 'static') root.style.position = 'relative';
+    return root;
+  }
+
+  private toPdfLength(px: number): string {
+    if ((this.opts.documentProfile ?? 'web') !== 'pdf') return `${Math.round(px)}px`;
+    const mm = (px * 25.4) / 96;
+    return `${Math.max(0, Math.round(mm * 100) / 100)}mm`;
+  }
+
+  private enablePdfImagePositioning(img: HTMLImageElement): void {
+    const container = this.getPdfImageContainer(img);
+    if (!container) return;
+
+    const imgRect = img.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const top = imgRect.top - containerRect.top + container.scrollTop;
+    const left = imgRect.left - containerRect.left + container.scrollLeft;
+
+    img.style.position = 'absolute';
+    img.style.top = this.toPdfLength(top);
+    img.style.left = this.toPdfLength(left);
+    img.style.float = '';
+    img.style.margin = '0';
+    img.style.display = 'block';
+    this.syncPdfImageContainerHeight(container, img, top);
+    this.onChange?.();
+  }
+
+  private disablePdfImagePositioning(img: HTMLImageElement): void {
+    img.style.removeProperty('position');
+    img.style.removeProperty('top');
+    img.style.removeProperty('left');
+    img.style.removeProperty('right');
+    img.style.removeProperty('bottom');
+    img.style.removeProperty('cursor');
+
+    const wrapper = img.parentElement;
+    if (wrapper?.classList.contains('be-pdf-image-layer') && wrapper.parentElement) {
+      wrapper.parentElement.insertBefore(img, wrapper);
+      if (!wrapper.children.length) wrapper.remove();
+    }
+    this.onChange?.();
+  }
+
+  private syncPdfImageContainerHeight(container: HTMLElement, img: HTMLImageElement, topPx?: number): void {
+    if (!container.classList.contains('be-pdf-image-layer')) return;
+    const top = typeof topPx === 'number' ? topPx : img.offsetTop;
+    const needed = Math.max(container.clientHeight, top + img.offsetHeight);
+    container.style.minHeight = this.toPdfLength(needed);
+  }
+
+  private startImageMove(e: MouseEvent, img: HTMLImageElement): void {
+    if ((this.opts.documentProfile ?? 'web') !== 'pdf') return;
+    const container = this.getPdfImageContainer(img);
+    if (!container) return;
+
+    this.enablePdfImagePositioning(img);
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const containerRect = container.getBoundingClientRect();
+    const startLeft = img.offsetLeft;
+    const startTop = img.offsetTop;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const maxLeft = () => Math.max(0, container.clientWidth - img.offsetWidth);
+    const maxTop = () => Math.max(0, container.clientHeight - img.offsetHeight);
+
+    const onMove = (me: MouseEvent) => {
+      const nextLeft = Math.min(maxLeft(), Math.max(0, startLeft + (me.clientX - startX)));
+      const nextTop = Math.min(maxTop(), Math.max(0, startTop + (me.clientY - startY)));
+      img.style.left = this.toPdfLength(nextLeft);
+      img.style.top = this.toPdfLength(nextTop);
+      this.syncPdfImageContainerHeight(container, img, nextTop);
+      this.positionImgResizer(img);
+      const lbl = this.imgResizerEl?.querySelector<HTMLElement>('.be-img-resizer__sizelabel');
+      if (lbl) lbl.textContent = `${Math.round(img.getBoundingClientRect().width)} × ${Math.round(img.getBoundingClientRect().height)} px · x:${Math.round(me.clientX - containerRect.left)} y:${Math.round(me.clientY - containerRect.top)}`;
+    };
+
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      this.onChange?.();
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
 
   private startResize(e: MouseEvent, img: HTMLImageElement, pos: string): void {
@@ -743,6 +965,20 @@ export class WysiwygEditor {
 
   private cleanContent(): void {
     Array.from(this.editorEl.childNodes).forEach(n => this.deepCleanNode(n));
+    this.onChange?.();
+  }
+
+  // ── Basculer casse ──────────────────────────────────────────────────────────
+
+  private toggleCase(): void {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+    const text = range.toString();
+    if (!text) return;
+    // Règle : tout en MAJ → passe en min ; sinon → passe en MAJ
+    const next = text === text.toUpperCase() ? text.toLowerCase() : text.toUpperCase();
+    document.execCommand('insertText', false, next);
     this.onChange?.();
   }
 
@@ -1328,12 +1564,13 @@ export class WysiwygEditor {
       if (fmtBtn) fmtBtn.style.display = '';
       setTimeout(() => this.sourceEl.focus(), 0);
     } else {
-      this.applyHtml(this.sourceEl.value);
       this.sourceWrapEl.style.display = 'none';
       this.editorEl.style.display = '';
       sourceBtn?.classList.remove('be-wysiwyg__btn--active');
       if (fmtBtn) fmtBtn.style.display = 'none';
-      this.editorEl.focus();
+      this.applyHtml(this.sourceEl.value);
+      this.onChange?.();
+      setTimeout(() => this.editorEl.focus(), 0);
     }
   }
 
@@ -2115,6 +2352,52 @@ export class WysiwygEditor {
       const target = this.getTargetEl(e.target as Node);
       if (target !== this.hoveredEl) this.showElemToolbar(target);
     });
+
+    // Double-clic → ouvrir les propriétés de l'élément
+    this.editorEl.addEventListener('dblclick', (e) => {
+      if (!this.show('elementProps') || this.sourceMode) return;
+      const clicked = e.target as HTMLElement;
+
+      // Image : priorité absolue
+      if (clicked.tagName === 'IMG') {
+        e.preventDefault();
+        this.hideImgResizer();
+        this.openElementPropsModal(clicked);
+        return;
+      }
+
+      // Lien <a> le plus proche dans l'éditeur
+      const link = clicked.closest('a');
+      if (link && this.editorEl.contains(link)) {
+        e.preventDefault();
+        this.openElementPropsModal(link as HTMLElement);
+        return;
+      }
+
+      // Cellule de tableau
+      const cell = clicked.closest('td, th');
+      if (cell && this.editorEl.contains(cell)) {
+        e.preventDefault();
+        this.openElementPropsModal(cell as HTMLElement);
+        return;
+      }
+
+      // Blocs spéciaux non-éditables (Mermaid, Draw, QR, Math)
+      const special = clicked.closest('.be-mermaid, .be-draw, .be-qr, .be-math');
+      if (special && this.editorEl.contains(special)) {
+        e.preventDefault();
+        this.openElementPropsModal(special as HTMLElement);
+        return;
+      }
+
+      // Bloc direct de l'éditeur (p, div, h1-h6, blockquote, pre, table…)
+      const block = this.getTargetEl(clicked);
+      if (block) {
+        e.preventDefault();
+        this.hideElemToolbar();
+        this.openElementPropsModal(block);
+      }
+    });
     this.editorEl.addEventListener('mousemove', () => {
       if (this.hoveredEl) this.positionElemToolbar(this.hoveredEl);
     });
@@ -2211,6 +2494,32 @@ export class WysiwygEditor {
     });
   }
 
+  private openDocumentPropsModal(): void {
+    const styleEl = this.ensureDocumentStyleElement();
+    const cssText = styleEl.textContent || '';
+
+    this.formModal.show({
+      title: 'Styles du document',
+      submitLabel: 'Appliquer',
+      tabs: [
+        {
+          label: 'Styles',
+          fields: [
+            {
+              key: '__stylecss',
+              label: 'Bloc <style>',
+              type: 'textarea',
+              rows: 22,
+              placeholder: '.mon-doc {\n  width: 21cm;\n  padding: 10mm;\n}',
+              value: cssText,
+            },
+          ],
+        },
+      ],
+      onSubmit: (values) => this.applyDocumentProps(values),
+    });
+  }
+
   private buildPropsTabsForEl(el: HTMLElement): WysiwygFormTab[] {
     const tag = el.tagName.toLowerCase();
     const s = (prop: string) => el.style.getPropertyValue(prop);
@@ -2252,6 +2561,16 @@ export class WysiwygEditor {
           ]},
         ]},
         { label: 'Style', fields: [
+          ...((this.opts.documentProfile ?? 'web') === 'pdf' ? [{
+            key: 'pdf-position-mode',
+            label: 'Placement PDF',
+            type: 'select' as const,
+            value: s('position') === 'absolute' ? 'free' : 'flow',
+            options: [
+              { value: 'flow', label: 'Flux normal' },
+              { value: 'free', label: 'Position libre' },
+            ],
+          }] : []),
           { key: 'float',         label: 'float',         type: 'select', value: s('float'), options: [
             { value: '', label: '— aucun —' }, { value: 'left', label: 'left' }, { value: 'right', label: 'right' },
           ]},
@@ -2385,12 +2704,21 @@ export class WysiwygEditor {
           val ? target.setAttribute(dim, val) : target.removeAttribute(dim);
         }
       }
+      if ((this.opts.documentProfile ?? 'web') === 'pdf' && 'pdf-position-mode' in v) {
+        if (v['pdf-position-mode'] === 'free') this.enablePdfImagePositioning(target as HTMLImageElement);
+        else this.disablePdfImagePositioning(target as HTMLImageElement);
+      }
     }
 
     // <a> : texte du lien
     if (target.tagName.toLowerCase() === 'a' && 'text' in v && v.text) {
       target.textContent = v.text;
     }
+
+    const initialRawCss = Array.from(target.style)
+      .map((prop) => `${prop}: ${target.style.getPropertyValue(prop)};`)
+      .join('\n')
+      .trim();
 
     // Propriétés CSS inline (champs individuels)
     for (const prop of ['color', 'background', 'font-size', 'font-weight', 'font-style',
@@ -2404,7 +2732,7 @@ export class WysiwygEditor {
     }
 
     // CSS brut — appliqué en dernier (priorité sur les champs individuels)
-    if (v['__rawcss'] && v['__rawcss'].trim()) {
+    if (v['__rawcss'] && v['__rawcss'].trim() && v['__rawcss'].trim() !== initialRawCss) {
       // Supporte le collage avec ou sans sélecteur : .foo { ... } ou directement prop: val;
       const block = v['__rawcss'].replace(/^[^{]*\{([\s\S]*)\}\s*$/, '$1');
       for (const line of block.split(';')) {
@@ -2416,6 +2744,121 @@ export class WysiwygEditor {
       }
     }
 
+    this.onChange?.();
+  }
+
+  private getDocumentRootElement(): HTMLElement | null {
+    const children = Array.from(this.editorEl.children) as HTMLElement[];
+    return children.find((el) => !['STYLE', 'SCRIPT'].includes(el.tagName)) ?? null;
+  }
+
+  private getDocumentRuleSelector(root: HTMLElement): string {
+    if (root.id) return `#${root.id}`;
+    const userClass = [...root.classList].find((cls) => !cls.startsWith('be-'));
+    if (userClass) return `.${userClass}`;
+    return root.tagName.toLowerCase();
+  }
+
+  private ensureDocumentStyleElement(): HTMLStyleElement {
+    let styleEl = this.editorEl.querySelector('style');
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      this.editorEl.prepend(styleEl);
+    }
+    return styleEl as HTMLStyleElement;
+  }
+
+  private escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  private getCssRuleDeclarations(cssText: string, selector: string): Map<string, string> {
+    const rule = new RegExp(`${this.escapeRegExp(selector)}\\s*\\{([\\s\\S]*?)\\}`, 'i').exec(cssText);
+    return this.parseCssDeclarations(rule?.[1] || '');
+  }
+
+  private parseCssDeclarations(cssText: string): Map<string, string> {
+    const declarations = new Map<string, string>();
+    String(cssText)
+      .split(';')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .forEach((line) => {
+        const idx = line.indexOf(':');
+        if (idx === -1) return;
+        const prop = line.slice(0, idx).trim();
+        const value = line.slice(idx + 1).trim();
+        if (prop && value) declarations.set(prop, value);
+      });
+    return declarations;
+  }
+
+  private serializeCssDeclarations(declarations: Map<string, string>): string {
+    return Array.from(declarations.entries())
+      .map(([prop, value]) => `${prop}: ${value};`)
+      .join('\n');
+  }
+
+  private extractEditableCssSelectors(cssText: string): string[] {
+    const selectors: string[] = [];
+    const regex = /(^|})\s*([^@][^{]+)\{/g;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(cssText)) !== null) {
+      const selectorBlock = (match[2] || '').trim();
+      selectorBlock
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .forEach((item) => {
+          if (!selectors.includes(item)) selectors.push(item);
+        });
+    }
+    return selectors;
+  }
+
+  private upsertCssRule(cssText: string, selector: string, declarations: Map<string, string>): string {
+    const block = `${selector} {\n${Array.from(declarations.entries()).map(([prop, value]) => `  ${prop}: ${value};`).join('\n')}\n}`;
+    const pattern = new RegExp(`${this.escapeRegExp(selector)}\\s*\\{[\\s\\S]*?\\}`, 'i');
+    if (pattern.test(cssText)) return cssText.replace(pattern, block);
+    return `${cssText.trim()}\n\n${block}`.trim();
+  }
+
+  private getPdfFormatDimensions(format: string, orientation: string): { width: string; height: string } | null {
+    const sizes: Record<string, { width: string; height: string }> = {
+      A4: { width: '21cm', height: '29.7cm' },
+      A5: { width: '14.8cm', height: '21cm' },
+      Letter: { width: '21.59cm', height: '27.94cm' },
+    };
+    const size = sizes[format];
+    if (!size) return null;
+    return orientation === 'landscape'
+      ? { width: size.height, height: size.width }
+      : size;
+  }
+
+  private detectPdfOrientation(width: string, height: string): string {
+    const w = parseFloat(width);
+    const h = parseFloat(height);
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return 'portrait';
+    return w > h ? 'landscape' : 'portrait';
+  }
+
+  private detectPdfFormat(width: string, height: string): string {
+    const compare = (value: string, target: string) => Math.abs(parseFloat(value) - parseFloat(target)) < 0.2;
+    const orientation = this.detectPdfOrientation(width, height);
+    const formats = ['A4', 'A5', 'Letter'] as const;
+    for (const format of formats) {
+      const dims = this.getPdfFormatDimensions(format, orientation);
+      if (!dims) continue;
+      if (compare(width, dims.width) && compare(height, dims.height)) return format;
+    }
+    return 'custom';
+  }
+
+  private applyDocumentProps(values: Record<string, string>): void {
+    const styleEl = this.ensureDocumentStyleElement();
+    styleEl.textContent = values.__stylecss?.trim() || '';
+    this.sourceEl.value = this.getHtml();
     this.onChange?.();
   }
 
@@ -2446,6 +2889,8 @@ export class WysiwygEditor {
 
     // ── 0 · Source + Historique ───────────────────────────────────────────────
     const s0: HTMLElement[] = [];
+    if (this.show('documentProps', false))
+      s0.push(this.makeBtn(icn.documentProps, this.opts.documentProfile === 'pdf' ? 'Propriétés du document PDF' : 'Propriétés du document', () => this.openDocumentPropsModal(), 'documentProps'));
     if (this.show('source'))
       s0.push(this.makeBtn(icn.source, 'Source HTML', () => this.toggleSourceMode(), 'source'));
     if (this.show('formatHtml')) {
@@ -2562,6 +3007,8 @@ export class WysiwygEditor {
       s8.push(this.makeExecBtn('underline',     icn.underline, 'Souligné (Ctrl+U)',   'underline'));
     if (this.show('strike'))
       s8.push(this.makeExecBtn('strikeThrough', icn.strike,    'Barré',               'strikeThrough'));
+    if (this.show('caseSwitch'))
+      s8.push(this.makeBtn(icn.caseSwitch, 'Basculer Maj/Min (lowercase ↔ UPPERCASE)', () => this.toggleCase()));
     if (this.show('script')) {
       s8.push(this.makeExecBtn('subscript',   icn.sub, 'Indice',    'subscript'));
       s8.push(this.makeExecBtn('superscript', icn.sup, 'Exposant',  'superscript'));
@@ -2571,6 +3018,22 @@ export class WysiwygEditor {
     if (this.show('bgColor'))
       s8.push(this.makeColorPicker('backColor', '#ffff00', 'Couleur de fond',  icn.bgColor));
     if (s8.length) sections.push(s8);
+
+    // ── Boutons personnalisés ─────────────────────────────────────────────────
+    if (this.opts.customButtons?.length) {
+      const sc: HTMLElement[] = [];
+      for (const def of this.opts.customButtons) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'be-wysiwyg__btn' + (def.className ? ` ${def.className}` : '');
+        btn.title = def.title;
+        btn.innerHTML = def.icon;
+        btn.addEventListener('mousedown', (e) => { e.preventDefault(); });
+        btn.addEventListener('click', () => def.onClick(this.getValue(), this));
+        sc.push(btn);
+      }
+      sections.push(sc);
+    }
 
     // ── Assemblage avec séparateurs automatiques ───────────────────────────────
     sections.forEach((section, i) => {
@@ -2609,7 +3072,7 @@ export class WysiwygEditor {
 
     const brand = document.createElement('span');
     brand.className = 'be-wysiwyg__brand';
-    brand.textContent = `Adliss.fr v${__PKG_VERSION__}`;
+    brand.textContent = this.opts.statusbarLabel || `Adliss.fr v${__PKG_VERSION__}`;
     this.statusBarEl.appendChild(brand);
 
     if (this.opts.wordCount !== false) {
@@ -2745,9 +3208,17 @@ export class WysiwygEditor {
     return btn;
   }
 
+  private assignFieldIdentity(el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement, base: string): void {
+    this.fieldIdentitySeq += 1;
+    const id = `be-${base}-${this.fieldIdentitySeq}`;
+    el.id = id;
+    el.name = id;
+  }
+
   private makeSelect(mod: string, title: string, cmd: string, opts: string[][], applyFont = false): HTMLSelectElement {
     const sel = document.createElement('select');
     sel.className = `be-wysiwyg__select be-wysiwyg__select--${mod}`; sel.title = title;
+    this.assignFieldIdentity(sel, `select-${mod}`);
     opts.forEach(([l, v]) => {
       const o = document.createElement('option'); o.value = v; o.textContent = l;
       if (applyFont && v) o.style.fontFamily = v;
@@ -2877,6 +3348,7 @@ export class WysiwygEditor {
     let pickerOpen = false;
     const picker = document.createElement('input');
     picker.type = 'color';
+    this.assignFieldIdentity(picker, `${cmd}-picker`);
     picker.style.cssText = 'position:fixed;bottom:0;right:0;width:0;height:0;opacity:0;pointer-events:none;';
     document.body.appendChild(picker);
     picker.addEventListener('change', () => {
@@ -2920,6 +3392,7 @@ export class WysiwygEditor {
   private makePanelInput(placeholder: string, type = 'text'): HTMLInputElement {
     const input = document.createElement('input');
     input.type = type; input.placeholder = placeholder; input.className = 'be-wysiwyg__panel-input';
+    this.assignFieldIdentity(input, `panel-${type}`);
     return input;
   }
 
@@ -3157,10 +3630,12 @@ class WysiwygFormModal {
       const colorPick = document.createElement('input');
       colorPick.type = 'color';
       colorPick.className = 'be-form-modal__color-pick';
+      this.assignFieldIdentity(colorPick, `${field.key}-color`);
       colorPick.value = /^#[0-9a-f]{6}$/i.test(field.value ?? '') ? field.value! : '#000000';
       const textInp = document.createElement('input');
       textInp.type = 'text';
       textInp.className = 'be-field__input';
+      this.assignFieldIdentity(textInp, field.key);
       textInp.placeholder = field.placeholder ?? '#000000 ou red ou rgb(…)';
       textInp.value = field.value ?? '';
       colorPick.addEventListener('input', () => { textInp.value = colorPick.value; });
@@ -3182,6 +3657,7 @@ class WysiwygFormModal {
     if (field.type === 'textarea') {
       const ta = document.createElement('textarea');
       ta.className = 'be-field__textarea';
+      this.assignFieldIdentity(ta, field.key);
       ta.rows = field.rows ?? 6;
       if (field.placeholder) ta.placeholder = field.placeholder;
       if (field.value) ta.value = field.value;
@@ -3199,6 +3675,7 @@ class WysiwygFormModal {
     if (field.type === 'select' && field.options) {
       const sel = document.createElement('select');
       sel.className = 'be-field__select';
+      this.assignFieldIdentity(sel, field.key);
       for (const opt of field.options) {
         const o = document.createElement('option');
         o.value = opt.value; o.textContent = opt.label;
@@ -3210,6 +3687,7 @@ class WysiwygFormModal {
       const inp = document.createElement('input');
       inp.type = field.type === 'url' ? 'url' : field.type === 'number' ? 'number' : 'text';
       inp.className = 'be-field__input';
+      this.assignFieldIdentity(inp, field.key);
       if (field.placeholder) inp.placeholder = field.placeholder;
       if (field.value) inp.value = field.value;
       if (field.required) inp.required = true;
@@ -3402,8 +3880,16 @@ class WysiwygTable {
         if (cd.colspan > 1) cell.colSpan = cd.colspan;
         if (cd.rowspan > 1) cell.rowSpan = cd.rowspan;
 
-        cell.style.padding = `${this.state.cellPadding}px`;
-        if (this.state.borderSize > 0) cell.style.border = `${this.state.borderSize}px solid ${cd.borderColor || '#d1d5db'}`;
+        if (cd.padding !== null) {
+          if (cd.padding) cell.style.padding = cd.padding;
+        } else {
+          cell.style.padding = `${this.state.cellPadding}px`;
+        }
+        if (cd.border !== null) {
+          if (cd.border) cell.style.border = cd.border;
+        } else if (this.state.borderSize > 0) {
+          cell.style.border = `${this.state.borderSize}px solid ${cd.borderColor || '#d1d5db'}`;
+        }
         if (cd.width) cell.style.width = cd.width;
         if (cd.height) cell.style.height = cd.height;
         if (cd.backgroundColor) cell.style.backgroundColor = cd.backgroundColor;
@@ -3524,8 +4010,17 @@ function renderTableHtml(props: TableProps): HTMLElement {
       const cell = document.createElement(cd.type) as HTMLTableCellElement;
       if (cd.colspan > 1) cell.colSpan = cd.colspan;
       if (cd.rowspan > 1) cell.rowSpan = cd.rowspan;
-      const st: string[] = [`padding:${props.cellPadding}px`];
-      if (props.borderSize > 0) st.push(`border:${props.borderSize}px solid ${cd.borderColor || '#d1d5db'}`);
+      const st: string[] = [];
+      if (cd.padding !== null) {
+        if (cd.padding) st.push(`padding:${cd.padding}`);
+      } else {
+        st.push(`padding:${props.cellPadding}px`);
+      }
+      if (cd.border !== null) {
+        if (cd.border) st.push(`border:${cd.border}`);
+      } else if (props.borderSize > 0) {
+        st.push(`border:${props.borderSize}px solid ${cd.borderColor || '#d1d5db'}`);
+      }
       if (cd.width) st.push(`width:${cd.width}`);
       if (cd.height) st.push(`height:${cd.height}`);
       if (cd.backgroundColor) st.push(`background:${cd.backgroundColor}`);
@@ -3553,6 +4048,7 @@ const S = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentCo
 const F = (d: string) => `<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">${d}</svg>`;
 
 const icn = {
+  documentProps:S('<rect x="4" y="3" width="14" height="18" rx="2"/><line x1="8" y1="8" x2="15" y2="8"/><line x1="8" y1="12" x2="15" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/><circle cx="19" cy="18" r="2.5"/>'),
   source:       S('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'),
   pageBreak:    S('<line x1="2" y1="12" x2="22" y2="12" stroke-dasharray="4 2"/><polyline points="8 8 12 12 16 8"/><polyline points="8 16 12 12 16 16"/>'),
   selectAll:    S('<rect x="2" y="2" width="20" height="20" rx="2" stroke-dasharray="4 2"/><polyline points="7 13 10 16 17 9"/>'),
@@ -3592,6 +4088,7 @@ const icn = {
   italic:       S('<path d="M19 4H10M14 20H5M15 4L9 20"/>'),
   underline:    S('<path d="M6 3v7a6 6 0 006 6 6 6 0 006-6V3"/><line x1="4" y1="21" x2="20" y2="21"/>'),
   strike:       S('<path d="M16 4H9a3 3 0 0 0-2.83 4"/><path d="M14 12a4 4 0 0 1 0 8H6"/><line x1="4" y1="12" x2="20" y2="12"/>'),
+  caseSwitch:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><text x="2" y="13" font-size="9" font-weight="700" font-family="sans-serif" fill="currentColor" stroke="none">Aa</text><polyline points="16 7 19 4 22 7"/><line x1="19" y1="4" x2="19" y2="13"/><polyline points="16 17 19 20 22 17"/><line x1="19" y1="20" x2="19" y2="11"/></svg>`,
   sub:          `<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M4 5l8 8M12 5L4 13"/><path d="M20 21h-4c0-1.5.44-2 1.5-2.5S20 18 20 16.5a1.5 1.5 0 00-3 0"/></svg>`,
   sup:          `<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M4 19l8-8M12 19L4 11"/><path d="M20 8h-4c0-1.5.44-2 1.5-2.5S20 5 20 3.5a1.5 1.5 0 00-3 0"/></svg>`,
   textColor:    `<svg viewBox="0 0 24 24" width="14" height="14"><text x="3" y="16" font-size="14" font-weight="bold" font-family="serif" fill="currentColor">A</text><rect x="3" y="18" width="18" height="3" fill="currentColor" rx="1"/></svg>`,
