@@ -3459,6 +3459,7 @@ class WysiwygFormModal {
   private footerExtraEl!: HTMLElement;
   private currentOpts: WysiwygFormOpts | null = null;
   private inputs: Map<string, HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement> = new Map();
+  private fieldIdentitySeq = 0;
   isOpen = false;
 
   constructor() {
@@ -3593,6 +3594,13 @@ class WysiwygFormModal {
       const first = this.inputs.values().next().value as HTMLElement | undefined;
       first?.focus();
     }, 0);
+  }
+
+  private assignFieldIdentity(el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement, base: string): void {
+    this.fieldIdentitySeq += 1;
+    const id = `be-${base}-${this.fieldIdentitySeq}`;
+    el.id = id;
+    el.name = id;
   }
 
   private renderFields(container: HTMLElement, fields: WysiwygFormRow[]): void {
