@@ -1,9 +1,11 @@
 // @synapxlab/wysiwyg — src/main.ts
-// Point d'entrée de la démo locale : initialise l'éditeur avec Mermaid, KaTeX et Excalidraw.
+// Point d'entrée de la démo locale : initialise l'éditeur avec Mermaid, KaTeX et Draw.
 import { WysiwygEditor } from './index';
 import mermaid from 'mermaid';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
+import { DrawEditor } from '@synapxlab/draw';
+import '@synapxlab/draw/style.css';
 
 mermaid.initialize({ startOnLoad: false, theme: 'default' });
 
@@ -13,7 +15,7 @@ const output = document.getElementById('output')!;
 const editor = new WysiwygEditor({
   mermaid,
   katex,
-  draw: true,
+  draw: DrawEditor,
   toolbar: { mermaid: true, math: true, draw: true },
 });
 editor.el.style.height = '100%';

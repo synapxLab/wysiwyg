@@ -300,7 +300,11 @@ Hover any block element in the editor to reveal a floating toolbar:
 - **Duplicate**
 - **Delete**
 
-To fully disable the Properties button and modal (floating toolbar, images and SVG drawings):
+### Toggle from the toolbar
+
+The **Element properties** button (gear icon, left section of the toolbar) is a **switch**: click to enable or disable the inspector on the fly. When disabled, the floating toolbar no longer appears on hover and double-click no longer opens the modal.
+
+The initial state defaults to `enabled`. Passing `toolbar: { elementProps: false }` both sets the initial state to disabled **and** hides the switch button from the toolbar:
 
 ```js
 new WysiwygEditor({

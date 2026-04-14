@@ -300,7 +300,11 @@ Survolez n'importe quel bloc dans l'éditeur pour afficher une toolbar flottante
 - **Dupliquer**
 - **Supprimer**
 
-Pour désactiver entièrement le bouton et la modale Propriétés (toolbar flottante, images et dessins SVG) :
+### Activer / désactiver depuis la toolbar
+
+Le bouton **Propriétés des balises** (icône engrenage, section gauche de la toolbar) est un **switch** : cliquez pour activer ou désactiver l'inspecteur à la volée. Quand il est désactivé, la toolbar flottante ne s'affiche plus au survol et le double-clic n'ouvre plus la modale.
+
+L'état initial est `activé` par défaut. Passer `toolbar: { elementProps: false }` désactive l'état initial **et** masque le bouton switch de la toolbar :
 
 ```js
 new WysiwygEditor({

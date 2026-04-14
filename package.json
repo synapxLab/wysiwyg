@@ -71,6 +71,7 @@
     "prepublishOnly": "npm run build:lib"
   },
   "devDependencies": {
+    "@synapxlab/draw": "file:../draw",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "chokidar": "^4.0.3",
