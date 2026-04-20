@@ -116,8 +116,10 @@ export interface WysiwygToolbarConfig {
   draw?: boolean;
   /** Bouton QR Code (défaut: false — nécessite opts.qrcode) */
   qrcode?: boolean;
-  /** Bouton / modale Propriétés des éléments (défaut: true) */
+  /** Bouton / modale Propriétés des éléments — affiche le bouton dans la toolbar (défaut: true) */
   elementProps?: boolean;
+  /** État initial du mode Propriétés des éléments — activé au démarrage (défaut: true) */
+  elementPropsEnabled?: boolean;
 }
 
 export interface WysiwygOptions {
@@ -315,7 +317,7 @@ export class WysiwygEditor {
 
   constructor(opts: WysiwygOptions = {}) {
     this.opts = opts;
-    this._elementPropsEnabled = opts.toolbar?.elementProps !== false;
+    this._elementPropsEnabled = opts.toolbar?.elementPropsEnabled !== false;
     this.el = document.createElement('div');
     this.el.className = opts.hideSource ? 'be-wysiwyg be-wysiwyg--embedded' : 'be-wysiwyg';
 
