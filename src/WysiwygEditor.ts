@@ -3558,6 +3558,15 @@ export class WysiwygEditor {
       html = this.editorEl.innerHTML;
     }
 
+    // Pas de texte ⇒ aucun appel : rien à traiter, et chaque appel est facturé à l'hôte.
+    const texte = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html').body.textContent ?? '';
+    if (![...texte].filter(c => !/\s/.test(c) && c.charCodeAt(0) !== 0x200b).join('')) {
+      this.openAiModal(action.label, scope, () => {}).showError(scope === 'selection'
+        ? 'La sélection ne contient pas de texte : rien à envoyer à l’assistant.'
+        : 'L’éditeur est vide : rien à envoyer à l’assistant.');
+      return;
+    }
+
     this.aiBusy = true;
     const btn = this.toolbarEl.querySelector<HTMLButtonElement>('[data-id="ai"]');
     if (btn) btn.disabled = true;
