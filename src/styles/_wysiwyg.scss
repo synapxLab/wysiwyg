@@ -1648,6 +1648,26 @@
   min-width: 190px;
   margin: -6px;
 
+  &__title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px 2px;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: var(--be-font);
+    color: var(--be-primary);
+    svg { width: 16px; height: 16px; }
+  }
+  &__hint {
+    padding: 0 12px 6px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--be-border);
+    font-size: 11px;
+    font-family: var(--be-font);
+    color: var(--be-text-muted);
+  }
+
   &__item {
     text-align: left;
     padding: 7px 12px;
@@ -1664,6 +1684,23 @@
 
 .be-ai-modal {
   .be-props-modal__dialog { width: 860px; }
+
+  .be-props-modal__header { flex-wrap: wrap; row-gap: 2px; }
+  &__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--be-primary);
+    svg { width: 20px; height: 20px; }
+  }
+  &__subtitle {
+    flex-basis: 100%;
+    font-size: 12px;
+    font-family: var(--be-font);
+    color: var(--be-text-muted);
+  }
 
   &__body { padding: 14px 16px; }
   &__loading { padding: 28px 0; text-align: center; font-size: 13px; color: var(--be-text-muted); font-family: var(--be-font); }

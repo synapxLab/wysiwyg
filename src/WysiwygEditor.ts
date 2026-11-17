@@ -3473,6 +3473,14 @@ export class WysiwygEditor {
     const menu = document.createElement('div');
     menu.className = 'be-ai-menu';
     menu.setAttribute('role', 'menu');
+    // En-tête : l'icône seule passe inaperçue dans une barre de 25 boutons.
+    const head = document.createElement('div');
+    head.className = 'be-ai-menu__title';
+    head.innerHTML = `${icn.ai}<span>Assistant IA</span>`;
+    const hint = document.createElement('div');
+    hint.className = 'be-ai-menu__hint';
+    hint.textContent = range && !range.collapsed ? 'Sur la sélection' : 'Sur tout le texte';
+    menu.append(head, hint);
     for (const a of this.opts.aiActions ?? DEFAULT_AI_ACTIONS) {
       const item = document.createElement('button');
       item.type = 'button';
@@ -3596,9 +3604,12 @@ export class WysiwygEditor {
     const header = document.createElement('div');
     header.className = 'be-props-modal__header';
     const titleEl = document.createElement('span');
-    titleEl.className = 'be-props-modal__title';
-    titleEl.textContent = `Assistant IA — ${title} (${scope === 'selection' ? 'sélection' : 'document entier'})`;
-    header.appendChild(titleEl);
+    titleEl.className = 'be-props-modal__title be-ai-modal__title';
+    titleEl.innerHTML = `${icn.ai}<span>Assistant IA</span>`;
+    const sub = document.createElement('span');
+    sub.className = 'be-ai-modal__subtitle';
+    sub.textContent = `${title} — ${scope === 'selection' ? 'sur la sélection' : 'sur tout le texte'} · proposition générée par une IA, à relire avant d'accepter`;
+    header.append(titleEl, sub);
     const body = document.createElement('div');
     body.className = 'be-props-modal__body be-ai-modal__body';
     const footer = document.createElement('div');
