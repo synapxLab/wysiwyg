@@ -17,6 +17,8 @@ import {
   ICONS as TBL,
 } from './table';
 import { pushModal, popModal, installEscapeHandler } from './modalStack';
+import { applyIntent, type WysiwygIntent } from './intent';
+import { SpeechReader } from './speech';
 
 // ─── Public interface ─────────────────────────────────────────────────────────
 
@@ -36,7 +38,7 @@ import { pushModal, popModal, installEscapeHandler } from './modalStack';
  * }})
  *
  * @example
- * // Activer le panneau Twig (contexte adliss.fr)
+ * // Activer le panneau Twig (templates Twig)
  * new WysiwygEditor({ toolbar: { twig: true } })
  */
 export interface WysiwygToolbarConfig {
@@ -116,15 +118,36 @@ export interface WysiwygToolbarConfig {
   draw?: boolean;
   /** Bouton QR Code (défaut: false — nécessite opts.qrcode) */
   qrcode?: boolean;
+  /** Bouton Lecture audio — lit le contenu via SpeechSynthesis (défaut: true) */
+  audio?: boolean;
   /** Bouton / modale Propriétés des éléments — affiche le bouton dans la toolbar (défaut: true) */
   elementProps?: boolean;
-  /** État initial du mode Propriétés des éléments — activé au démarrage (défaut: true) */
+  /** État initial du mode Propriétés des éléments — activé au démarrage (défaut: false) */
   elementPropsEnabled?: boolean;
 }
 
 export interface WysiwygOptions {
   /** Profil d'édition du document. `pdf` adapte les réglages et le panneau Document. */
   documentProfile?: 'web' | 'pdf';
+  /**
+   * Intention de sortie : optimise le HTML renvoyé par `getValue()` pour la
+   * cible de rendu finale.
+   * - `'pdf'`  — tableaux figés (`table-layout:fixed`), wrappers responsive
+   *   retirés, `valign` dupliqué en attribut (moteurs PDF historiques).
+   * - `'html'` — tableaux à largeur fixe enveloppés dans un conteneur
+   *   défilable, attributs `valign`/`style` vides nettoyés.
+   * - absent   — HTML brut, aucune transformation.
+   * Les contenus Twig (`{% %}` / `{{ }}`) ne sont jamais transformés.
+   *
+   * @example
+   * new WysiwygEditor({ intent: 'pdf', documentProfile: 'pdf' })
+   */
+  intent?: WysiwygIntent;
+  /**
+   * Langue du contenu (code BCP 47, ex. `fr-FR`) — utilisée par la lecture
+   * audio. Défaut : `lang` du document, sinon langue du navigateur.
+   */
+  lang?: string;
   /**
    * Configuration individuelle des boutons de la toolbar.
    * Chaque clé est un groupe ; sa valeur booléenne l'active ou le masque.
@@ -234,11 +257,10 @@ export interface WysiwygOptions {
   twigSnippets?: WysiwygTwigSnippet[];
   /**
    * Texte personnalisé affiché dans la barre de statut (marque).
-   * Si vide ou absent, affiche `Adliss.fr v{version}`.
+   * Si vide ou absent, affiche `synapxLab wysiwyg v{version}`.
    *
    * @example
    * new WysiwygEditor({ statusbarLabel: 'MonApp v2.0' })
-   * new WysiwygEditor({ statusbarLabel: '' }) // → "Adliss.fr v1.x.x"
    */
   statusbarLabel?: string;
   /**
@@ -257,6 +279,26 @@ export interface WysiwygOptions {
    * })
    */
   customButtons?: WysiwygCustomButton[];
+  /**
+   * CSS du rendu final (PDF / web) injecté dans la zone d'édition pour un aperçu
+   * fidèle (vrai WYSIWYG). Les sélecteurs sont automatiquement *scopés* à la zone
+   * de contenu : `body`/`html`/`:root` ciblent la racine éditable, les autres
+   * sélecteurs sont préfixés. Idéal pour l'aperçu fidèle des templates PDF.
+   *
+   * @example
+   * new WysiwygEditor({
+   *   documentProfile: 'pdf',
+   *   contentCss: `body{font-family:Georgia;font-size:12pt}
+   *                table{border-collapse:collapse;width:100%}
+   *                td,th{border:1px solid #333;padding:4px}`
+   * })
+   */
+  contentCss?: string | string[];
+  /**
+   * Callback déclenché à chaque modification du contenu (frappe, collage, source…).
+   * Équivalent à assigner `editor.onChange` après construction.
+   */
+  onChange?: () => void;
 }
 
 /** Bouton personnalisé injectable dans la toolbar. */
@@ -297,6 +339,7 @@ export class WysiwygEditor {
   private sourceHlEl!: HTMLPreElement;
   private toolbarEl!: HTMLElement;
   private sourceMode = false;
+  private twigStore: string[] = []; // tokens Twig protégés pendant applyHtml (anti foster-parenting)
   private savedRange: Range | null = null;
   private activePanel: HTMLElement | null = null;
   private activePanelBtn: HTMLElement | null = null;
@@ -314,10 +357,14 @@ export class WysiwygEditor {
   private drawEditor: DrawEditorLike | null = null;
   private fieldIdentitySeq = 0;
   private _elementPropsEnabled: boolean;
+  private docCleanups = new Set<() => void>();
+  private imgOutsideOff: (() => void) | null = null;
+  private fullscreenKeyOff: (() => void) | null = null;
+  private speechReader: SpeechReader | null = null;
 
   constructor(opts: WysiwygOptions = {}) {
     this.opts = opts;
-    this._elementPropsEnabled = opts.toolbar?.elementPropsEnabled !== false;
+    this._elementPropsEnabled = opts.toolbar?.elementPropsEnabled === true;
     this.el = document.createElement('div');
     this.el.className = opts.hideSource ? 'be-wysiwyg be-wysiwyg--embedded' : 'be-wysiwyg';
 
@@ -336,11 +383,20 @@ export class WysiwygEditor {
     this.setupDrawClickHandler();
     this.setupQrcodeClickHandler();
     this.setupElementInspector();
+
+    if (opts.onChange) this.onChange = opts.onChange;
+    if (opts.contentCss) this.setContentCss(opts.contentCss);
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
   getValue(): string {
+    const raw = this.sourceMode ? this.sourceEl.value : this.getHtml();
+    return applyIntent(raw, this.opts.intent);
+  }
+
+  /** Valeur HTML brute, sans la normalisation liée à `intent`. */
+  getRawValue(): string {
     return this.sourceMode ? this.sourceEl.value : this.getHtml();
   }
 
@@ -351,9 +407,75 @@ export class WysiwygEditor {
     this.sourceEl.value = content;
   }
 
+  /** Texte brut du contenu (sans balises), pratique pour un résumé / recherche. */
+  getText(): string {
+    return (this.editorEl.textContent ?? '').replace(/ /g, ' ').trim();
+  }
+
+  /** `true` si l'éditeur est actuellement en mode code source. */
+  isSourceMode(): boolean {
+    return this.sourceMode;
+  }
+
+  /** Insère du HTML à la position du curseur (sans effet en mode source). */
+  insert(html: string): void {
+    this.insertHtml(html);
+    this.onChange?.();
+  }
+
+  /**
+   * Injecte (ou remplace) le CSS de rendu dans la zone d'édition pour un aperçu
+   * fidèle. Les sélecteurs sont scopés automatiquement à la zone de contenu.
+   */
+  setContentCss(css: string | string[]): void {
+    const raw = Array.isArray(css) ? css.join('\n') : css;
+    let styleEl = this.el.querySelector<HTMLStyleElement>('style[data-be-content-css]');
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.setAttribute('data-be-content-css', '');
+      this.el.insertBefore(styleEl, this.el.firstChild);
+    }
+    styleEl.textContent = this.scopeCss(raw, '.be-wysiwyg__editor');
+  }
+
   focus(): void {
     if (this.sourceMode) this.sourceEl.focus();
     else this.editorEl.focus();
+  }
+
+  /**
+   * Détruit l'instance : retire tous les listeners attachés à `document`,
+   * les éléments montés dans `document.body` (overlay de redimensionnement
+   * d'image, toolbar d'éléments, modale de formulaire) et le DOM de l'éditeur.
+   * L'instance ne doit plus être utilisée après cet appel.
+   */
+  destroy(): void {
+    this.hideImgResizer();
+    this.closePanel();
+    this.formModal.close();
+    if (this.hideToolbarTimer) { clearTimeout(this.hideToolbarTimer); this.hideToolbarTimer = null; }
+    this.speechReader?.stop();
+    this.speechReader = null;
+    for (const off of [...this.docCleanups]) off();
+    this.drawEditor?.destroy();
+    this.drawEditor = null;
+    this.elemToolbarEl.remove();
+    this.el.remove();
+  }
+
+  /** Attache un listener sur `document`, l'enregistre pour destroy(), et renvoie sa fonction de retrait. */
+  private listenDoc<K extends keyof DocumentEventMap>(
+    type: K,
+    fn: (e: DocumentEventMap[K]) => void,
+    opts?: AddEventListenerOptions,
+  ): () => void {
+    document.addEventListener(type, fn as EventListener, opts);
+    const off = () => {
+      document.removeEventListener(type, fn as EventListener, opts);
+      this.docCleanups.delete(off);
+    };
+    this.docCleanups.add(off);
+    return off;
   }
 
   // ── Private — layout ───────────────────────────────────────────────────────
@@ -390,6 +512,7 @@ export class WysiwygEditor {
     this.sourceEl = document.createElement('textarea');
     this.sourceEl.className = 'be-wysiwyg__source';
     this.sourceEl.spellcheck = false;
+    this.sourceEl.wrap = 'off'; // pas de retour à la ligne auto → alignement avec le <pre> coloré
     (this.sourceEl as HTMLTextAreaElement & { autocomplete: string }).autocomplete = 'off';
 
     this.sourceEl.addEventListener('input', () => {
@@ -400,6 +523,7 @@ export class WysiwygEditor {
       this.sourceHlEl.scrollTop = this.sourceEl.scrollTop;
       this.sourceHlEl.scrollLeft = this.sourceEl.scrollLeft;
     });
+    this.sourceEl.addEventListener('keydown', (e) => this.handleSourceKeydown(e));
 
     this.sourceWrapEl.appendChild(this.sourceHlEl);
     this.sourceWrapEl.appendChild(this.sourceEl);
@@ -437,10 +561,16 @@ export class WysiwygEditor {
   }
 
   private applyHtml(html: string): void {
-    this.editorEl.innerHTML = html;
+    // Protéger le Twig en position texte : le parser HTML « foster-parente » sinon
+    // les {% for %}/{{ … }} hors des <table>, ce qui casse les templates.
+    this.editorEl.innerHTML = this.protectTwigInText(html);
+    this.restoreProtectedTwig(this.editorEl);
     // Convertir les <table> bruts (ex: chargés depuis un template) en WysiwygTable
     this.editorEl.querySelectorAll<HTMLTableElement>('table').forEach(table => {
       if (table.closest('.be-wysiwyg-table-widget')) return;
+      // Tableau contenant du Twig (boucle de lignes…) : on le garde en HTML éditable
+      // brut, le widget de grille ne sait pas représenter une boucle.
+      if (/\{%|\{\{/.test(table.innerHTML)) return;
       const state = parseHtmlTableToState(table);
       const widget = new WysiwygTable({ state });
       // Si le <table> est le seul enfant d'un <div> wrapper (sortie de renderTableHtml), remplacer le div
@@ -463,6 +593,113 @@ export class WysiwygEditor {
         } catch { /* ignore */ }
       });
     }
+  }
+
+  /**
+   * Remplace les tokens Twig en position texte par des commentaires-placeholder.
+   * Les commentaires sont insérés tels quels par le parser (même dans un <table>),
+   * contrairement au texte brut qui serait éjecté. Le Twig dans les attributs
+   * (ex: class="{{ x }}") est laissé intact car capturé par le motif de balise.
+   */
+  private protectTwigInText(html: string): string {
+    this.twigStore = [];
+    const RE = /<(?:pre|script|style|textarea)\b[^>]*>[\s\S]*?<\/(?:pre|script|style|textarea)\s*>|<!--[\s\S]*?-->|<![\w][^>]*>|<\/?[\w:-]+(?:\s+[\w:-]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]*))?)*\s*\/?>|\{%-?[\s\S]*?-?%\}|\{\{-?[\s\S]*?-?\}\}/g;
+    return html.replace(RE, (tok) => {
+      if (tok.startsWith('{%') || tok.startsWith('{{')) {
+        const i = this.twigStore.push(tok) - 1;
+        return `<!--BWT${i}-->`;
+      }
+      return tok;
+    });
+  }
+
+  /** Restaure les placeholders Twig (commentaires) en nœuds texte, in situ. */
+  private restoreProtectedTwig(root: HTMLElement): void {
+    if (!this.twigStore.length) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_COMMENT);
+    const found: Comment[] = [];
+    let n: Node | null;
+    while ((n = walker.nextNode())) {
+      if (/^BWT\d+$/.test((n as Comment).data)) found.push(n as Comment);
+    }
+    found.forEach(c => {
+      const raw = this.twigStore[+c.data.slice(3)] ?? '';
+      c.replaceWith(document.createTextNode(raw));
+    });
+    this.twigStore = [];
+  }
+
+  /**
+   * Scope un bloc CSS à la zone d'édition : `body`/`html`/`:root` → racine
+   * éditable, les autres sélecteurs sont préfixés. Gère les listes de sélecteurs
+   * (virgules) et les at-rules à bloc imbriqué (@media/@supports/@layer) ;
+   * laisse intactes @font-face/@keyframes/@page/@import/@charset.
+   */
+  private scopeCss(css: string, scope: string): string {
+    // Retire les commentaires pour simplifier le parsing
+    const clean = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const out: string[] = [];
+    let i = 0;
+    const n = clean.length;
+
+    const scopeSelector = (sel: string): string => {
+      const s = sel.trim();
+      if (!s) return s;
+      if (/^(:root|html|body)\b/.test(s)) {
+        const rest = s.replace(/^(:root|html|body)\s*/, '');
+        return rest ? `${scope} ${rest}` : scope;
+      }
+      // Déjà scopé (cas ré-injection) → ne pas redoubler
+      if (s.startsWith(scope)) return s;
+      return `${scope} ${s}`;
+    };
+
+    while (i < n) {
+      // Saute les espaces
+      while (i < n && /\s/.test(clean[i])) i++;
+      if (i >= n) break;
+
+      if (clean[i] === '@') {
+        // At-rule : lire jusqu'à `{` ou `;`
+        let j = i;
+        while (j < n && clean[j] !== '{' && clean[j] !== ';') j++;
+        const prelude = clean.slice(i, j).trim();
+        if (clean[j] === ';' || j >= n) {           // @import/@charset…
+          out.push(prelude + ';');
+          i = j + 1; continue;
+        }
+        // at-rule à bloc : trouver le bloc équilibré
+        const blockStart = j;
+        let depth = 0, k = j;
+        for (; k < n; k++) {
+          if (clean[k] === '{') depth++;
+          else if (clean[k] === '}') { depth--; if (depth === 0) { k++; break; } }
+        }
+        const inner = clean.slice(blockStart + 1, k - 1);
+        if (/^@(media|supports|layer|container)/i.test(prelude)) {
+          out.push(`${prelude} {\n${this.scopeCss(inner, scope)}\n}`);
+        } else {                                    // @font-face/@keyframes/@page → inchangé
+          out.push(`${prelude} {${inner}}`);
+        }
+        i = k; continue;
+      }
+
+      // Règle normale : sélecteurs jusqu'à `{`, puis bloc équilibré
+      let j = i;
+      while (j < n && clean[j] !== '{') j++;
+      if (j >= n) break;
+      const selectors = clean.slice(i, j);
+      let depth = 0, k = j;
+      for (; k < n; k++) {
+        if (clean[k] === '{') depth++;
+        else if (clean[k] === '}') { depth--; if (depth === 0) { k++; break; } }
+      }
+      const body = clean.slice(j + 1, k - 1).trim();
+      const scoped = selectors.split(',').map(scopeSelector).filter(Boolean).join(', ');
+      out.push(`${scoped} { ${body} }`);
+      i = k;
+    }
+    return out.join('\n');
   }
 
   // ── Paste ──────────────────────────────────────────────────────────────────
@@ -564,7 +801,7 @@ export class WysiwygEditor {
   }
 
   private setupClickOutside(): void {
-    document.addEventListener('mousedown', (e) => {
+    this.listenDoc('mousedown', (e) => {
       if (this.activePanel && !this.activePanel.contains(e.target as Node) &&
           this.activePanelBtn !== e.target &&
           !this.activePanelBtn?.contains(e.target as Node)) {
@@ -598,7 +835,7 @@ export class WysiwygEditor {
         this.hideImgResizer();
       }
     });
-    document.addEventListener('keydown', (e) => {
+    this.listenDoc('keydown', (e) => {
       if (e.key === 'Escape') this.hideImgResizer();
       if ((e.key === 'Delete' || e.key === 'Backspace') && this.resizingImg) {
         e.preventDefault();
@@ -713,14 +950,13 @@ export class WysiwygEditor {
     lbl.className = 'be-img-resizer__sizelabel';
     wrap.appendChild(lbl);
 
-    // Click outside → fermer
+    // Click outside → fermer (retrait du listener centralisé dans hideImgResizer)
     const onOutside = (e: MouseEvent) => {
-      if (!wrap.contains(e.target as Node) && e.target !== img) {
-        this.hideImgResizer();
-        document.removeEventListener('mousedown', onOutside, true);
-      }
+      if (!wrap.contains(e.target as Node) && e.target !== img) this.hideImgResizer();
     };
-    setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
+    setTimeout(() => {
+      if (this.resizingImg === img) this.imgOutsideOff = this.listenDoc('mousedown', onOutside, { capture: true });
+    }, 0);
 
     this.bindPdfImageMove(img);
     this.positionImgResizer(img);
@@ -753,6 +989,8 @@ export class WysiwygEditor {
       this.imgMoveCleanup();
       this.imgMoveCleanup = null;
     }
+    this.imgOutsideOff?.();
+    this.imgOutsideOff = null;
     this.imgResizerEl?.remove();
     this.imgResizerEl = null;
     this.resizingImg = null;
@@ -886,13 +1124,13 @@ export class WysiwygEditor {
     };
 
     const onUp = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      offMove();
+      offUp();
       this.onChange?.();
     };
 
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    const offMove = this.listenDoc('mousemove', onMove);
+    const offUp = this.listenDoc('mouseup', onUp);
   }
 
   private startResize(e: MouseEvent, img: HTMLImageElement, pos: string): void {
@@ -928,13 +1166,13 @@ export class WysiwygEditor {
     };
 
     const onUp = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      offMove();
+      offUp();
       this.onChange?.();
     };
 
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    const offMove = this.listenDoc('mousemove', onMove);
+    const offUp = this.listenDoc('mouseup', onUp);
   }
 
   // ── Deep clean ─────────────────────────────────────────────────────────────
@@ -1586,6 +1824,66 @@ export class WysiwygEditor {
     // Resync scroll (l'utilisateur peut avoir scrollé pendant l'édition)
     this.sourceHlEl.scrollTop = this.sourceEl.scrollTop;
     this.sourceHlEl.scrollLeft = this.sourceEl.scrollLeft;
+  }
+
+  /** Largeur d'une indentation dans le textarea source (espaces). */
+  private static readonly SOURCE_INDENT = '  ';
+
+  /**
+   * Gestion clavier du textarea source : Tab indente, Shift+Tab désindente.
+   * Sur sélection multi-lignes, agit sur chaque ligne. Préserve l'undo natif
+   * via execCommand pour l'insertion simple.
+   */
+  private handleSourceKeydown(e: KeyboardEvent): void {
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
+
+    const ta = this.sourceEl;
+    const indent = WysiwygEditor.SOURCE_INDENT;
+    const { selectionStart: start, selectionEnd: end, value } = ta;
+    const selectionSpansLines = value.slice(start, end).includes('\n');
+
+    // Cas simple : pas de sélection multi-lignes et Tab → insertion d'une indentation
+    if (e.key === 'Tab' && !e.shiftKey && !selectionSpansLines) {
+      // execCommand conserve l'historique undo natif du textarea
+      if (document.execCommand('insertText', false, indent)) {
+        this.refreshHighlight();
+        this.onChange?.();
+        return;
+      }
+    }
+
+    // Cas bloc : indenter/désindenter chaque ligne couverte par la sélection
+    const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+    const block = value.slice(lineStart, end);
+    let newBlock: string;
+    let removedFirst = 0;
+    let removedTotal = 0;
+
+    if (e.shiftKey) {
+      // Désindentation : retire jusqu'à `indent.length` espaces (ou une tab) en début de ligne
+      newBlock = block.replace(/^[ \t]{1,2}/gm, (m, offset: number) => {
+        const cut = m.startsWith('\t') ? 1 : Math.min(indent.length, m.length);
+        if (offset === 0) removedFirst = cut;
+        removedTotal += cut;
+        return m.slice(cut);
+      });
+    } else {
+      // Indentation : ajoute une indentation devant chaque ligne non vide en fin de bloc
+      const lines = block.split('\n');
+      newBlock = lines.map(l => indent + l).join('\n');
+      removedFirst = -indent.length;        // négatif = ajout
+      removedTotal = -indent.length * lines.length;
+    }
+
+    const newValue = value.slice(0, lineStart) + newBlock + value.slice(end);
+    ta.value = newValue;
+    // Repositionne la sélection sur le bloc transformé
+    const newStart = Math.max(lineStart, start - removedFirst);
+    const newEnd = end - removedTotal;
+    ta.setSelectionRange(newStart, newEnd);
+    this.refreshHighlight();
+    this.onChange?.();
   }
 
   /** Tokenise du HTML+Twig et retourne une chaîne avec des <span> de couleur. */
@@ -2937,6 +3235,8 @@ export class WysiwygEditor {
       s1.push(this.makeBtn(icn.draw, 'Insérer un dessin SVG', () => this.insertDraw()));
     if (this.opts.qrcode && this.show('qrcode', false))
       s1.push(this.makeBtn(icn.qrcode, 'Insérer un QR Code', () => this.insertQrcode()));
+    if (this.show('audio') && SpeechReader.isSupported())
+      s1.push(this.makeBtn(icn.audio, 'Lire le contenu à voix haute', () => this.toggleAudioReading(), 'audio'));
     if (s1.length) sections.push(s1);
 
     // ── 2 · Listes ────────────────────────────────────────────────────────────
@@ -3065,12 +3365,31 @@ export class WysiwygEditor {
       btn.title = this.isFullscreen ? 'Quitter le plein écran (Échap)' : 'Plein écran';
       btn.classList.toggle('be-wysiwyg__btn--active', this.isFullscreen);
     }
+    this.fullscreenKeyOff?.();
+    this.fullscreenKeyOff = null;
     if (this.isFullscreen) {
-      const onKey = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') { this.toggleFullscreen(); document.removeEventListener('keydown', onKey); }
-      };
-      document.addEventListener('keydown', onKey);
+      this.fullscreenKeyOff = this.listenDoc('keydown', (e) => {
+        if (e.key === 'Escape') this.toggleFullscreen();
+      });
     }
+  }
+
+  // ── Lecture audio (SpeechSynthesis) ────────────────────────────────────────
+
+  /** Lit la sélection courante — ou tout le contenu — à voix haute (toggle lecture/arrêt). */
+  private toggleAudioReading(): void {
+    if (!this.speechReader) {
+      this.speechReader = new SpeechReader(this.opts.lang);
+      this.speechReader.onStateChange = (speaking) => {
+        const btn = this.toolbarEl.querySelector<HTMLElement>('[data-id="audio"]');
+        if (!btn) return;
+        btn.innerHTML = speaking ? icn.audioStop : icn.audio;
+        btn.title = speaking ? 'Arrêter la lecture' : 'Lire le contenu à voix haute';
+        btn.classList.toggle('be-wysiwyg__btn--active', speaking);
+      };
+    }
+    const selection = window.getSelection()?.toString().trim();
+    this.speechReader.toggle(selection || this.getText());
   }
 
   private toggleElementProps(): void {
@@ -3088,7 +3407,7 @@ export class WysiwygEditor {
 
     const brand = document.createElement('span');
     brand.className = 'be-wysiwyg__brand';
-    brand.textContent = this.opts.statusbarLabel || `Adliss.fr v${__PKG_VERSION__}`;
+    brand.textContent = this.opts.statusbarLabel || `synapxLab wysiwyg v${__PKG_VERSION__}`;
     this.statusBarEl.appendChild(brand);
 
     if (this.opts.wordCount !== false) {
@@ -3122,13 +3441,13 @@ export class WysiwygEditor {
       if (parent !== this.el) parent.style.height = `${newH}px`;
     };
     const onUp = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      offMove();
+      offUp();
       document.body.style.userSelect = '';
       document.body.style.cursor = '';
     };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    const offMove = this.listenDoc('mousemove', onMove);
+    const offUp = this.listenDoc('mouseup', onUp);
   }
 
   private updateWordCount(): void {
@@ -3161,30 +3480,123 @@ export class WysiwygEditor {
     this.onChange?.();
   }
 
+  // Tags sans contenu fermant
+  private static readonly PRETTY_VOID = new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
+  // Tags inline → restent dans le flux (pas de saut de ligne dédié)
+  private static readonly PRETTY_INLINE = new Set(['a','abbr','b','bdi','bdo','cite','code','data','dfn','em','i','kbd','mark','q','rp','rt','ruby','s','samp','small','span','strong','sub','sup','time','u','var','wbr']);
+  // Tags void considérés comme inline (restent dans le flux)
+  private static readonly PRETTY_INLINE_VOID = new Set(['br','img','wbr','input']);
+  // Mots-clés Twig ouvrant un bloc (indentent jusqu'à leur end…)
+  private static readonly TWIG_OPENERS = new Set(['if','for','block','macro','with','spaceless','apply','autoescape','embed','filter','verbatim','sandbox','cache','set']);
+  private static readonly TWIG_MIDS = new Set(['else','elseif','elif','empty']);
+
+  /**
+   * Formate du HTML+Twig sans aucune perte : tokenisation par chaîne (jamais de
+   * round-trip innerHTML), donc commentaires, Twig et contenus bruts (pre/script/
+   * style) sont préservés et le Twig n'est jamais déplacé hors des tableaux.
+   */
   private prettyHtml(html: string): string {
-    const VOID = new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
-    const INLINE = new Set(['a','abbr','b','bdi','cite','code','em','i','kbd','mark','q','s','samp','small','span','strong','sub','sup','u','var']);
-    const tmp = document.createElement('div');
-    tmp.innerHTML = html;
-    const fmt = (node: Node, depth: number): string => {
-      const pad = '  '.repeat(depth);
-      if (node.nodeType === Node.TEXT_NODE) {
-        const t = node.textContent?.trim() ?? '';
-        return t ? pad + t + '\n' : '';
-      }
-      if (node.nodeType !== Node.ELEMENT_NODE) return '';
-      const el = node as HTMLElement;
-      const tag = el.tagName.toLowerCase();
-      const attrs = Array.from(el.attributes).map(a => ` ${a.name}="${a.value}"`).join('');
-      if (VOID.has(tag)) return `${pad}<${tag}${attrs}>\n`;
-      if (INLINE.has(tag)) {
-        const inner = el.innerHTML;
-        return `${pad}<${tag}${attrs}>${inner}</${tag}>\n`;
-      }
-      const children = Array.from(el.childNodes).map(c => fmt(c, depth + 1)).filter(Boolean).join('');
-      return `${pad}<${tag}${attrs}>\n${children}${pad}</${tag}>\n`;
+    type Kind = 'open' | 'close' | 'topen' | 'tend' | 'tmid' | 'leaf' | 'inline' | 'raw';
+    interface Seg { depth: number; text: string; kind: Kind; name?: string; }
+
+    const RE = new RegExp([
+      '(<(?:pre|script|style|textarea)\\b[^>]*>[\\s\\S]*?<\\/(?:pre|script|style|textarea)\\s*>)', // 1 raw
+      '(<!--[\\s\\S]*?-->)',                                                                        // 2 comment
+      '(<!\\w[^>]*>)',                                                                              // 3 doctype
+      '(\\{%-?[\\s\\S]*?-?%\\})',                                                                    // 4 twig block
+      '(\\{\\{-?[\\s\\S]*?-?\\}\\})',                                                                // 5 twig var
+      '(<\\/[\\w:-]+\\s*>)',                                                                         // 6 close tag
+      '(<[\\w:-]+(?:\\s+[\\w:-]+(?:=(?:"[^"]*"|\'[^\']*\'|[^\\s>]*))?)*\\s*\\/?>)',                  // 7 open/self-close
+    ].join('|'), 'g');
+
+    const tagName = (t: string) => (t.match(/^<\/?\s*([\w:-]+)/)?.[1] ?? '').toLowerCase();
+    const twigKw = (t: string) => t.replace(/^\{%-?\s*/, '').match(/^(\w+)/)?.[1] ?? '';
+
+    const segs: Seg[] = [];
+    let depth = 0;
+    let inline = '';
+    const flush = () => {
+      const t = inline.replace(/\s+/g, ' ').trim();
+      if (t) segs.push({ depth, text: t, kind: 'inline' });
+      inline = '';
     };
-    return Array.from(tmp.childNodes).map(n => fmt(n, 0)).filter(Boolean).join('').trim();
+    const dec = () => { depth = Math.max(0, depth - 1); };
+
+    let last = 0;
+    let m: RegExpExecArray | null;
+    const push = (raw: string) => {
+      if (m!.index > last) inline += raw.slice(last, m!.index);
+    };
+
+    while ((m = RE.exec(html)) !== null) {
+      push(html);
+      last = RE.lastIndex;
+
+      if (m[1] !== undefined) {                       // raw (pre/script/style)
+        flush(); segs.push({ depth, text: m[1], kind: 'raw' });
+      } else if (m[2] !== undefined) {                // comment
+        flush(); segs.push({ depth, text: m[2], kind: 'leaf' });
+      } else if (m[3] !== undefined) {                // doctype
+        flush(); segs.push({ depth, text: m[3], kind: 'leaf' });
+      } else if (m[4] !== undefined) {                // twig block
+        const kw = twigKw(m[4]);
+        if (/^end/.test(kw)) {
+          flush(); dec(); segs.push({ depth, text: m[4], kind: 'tend', name: kw.replace(/^end/, '') });
+        } else if (WysiwygEditor.TWIG_MIDS.has(kw)) {
+          flush(); segs.push({ depth: Math.max(0, depth - 1), text: m[4], kind: 'tmid' });
+        } else if (WysiwygEditor.TWIG_OPENERS.has(kw) && !(kw === 'set' && /=/.test(m[4]))) {
+          flush(); segs.push({ depth, text: m[4], kind: 'topen', name: kw }); depth++;
+        } else {
+          flush(); segs.push({ depth, text: m[4], kind: 'leaf' });   // include/extends/set=/do…
+        }
+      } else if (m[5] !== undefined) {                // twig var {{ }}
+        inline += m[5];
+      } else if (m[6] !== undefined) {                // closing tag
+        const name = tagName(m[6]);
+        if (WysiwygEditor.PRETTY_INLINE.has(name)) inline += m[6];
+        else { flush(); dec(); segs.push({ depth, text: m[6], kind: 'close', name }); }
+      } else if (m[7] !== undefined) {                // opening / self-closing tag
+        const name = tagName(m[7]);
+        const selfClose = /\/>\s*$/.test(m[7]) || WysiwygEditor.PRETTY_VOID.has(name);
+        if (WysiwygEditor.PRETTY_INLINE.has(name) || WysiwygEditor.PRETTY_INLINE_VOID.has(name)) {
+          inline += m[7];
+        } else if (selfClose) {
+          flush(); segs.push({ depth, text: m[7], kind: 'leaf' });    // hr, source, col…
+        } else {
+          flush(); segs.push({ depth, text: m[7], kind: 'open', name }); depth++;
+        }
+      }
+    }
+    if (last < html.length) inline += html.slice(last);
+    flush();
+
+    // Peephole : recompacte les blocs ne contenant qu'une ligne inline (ou vides)
+    // <p>texte</p> ou {% if x %}…{% endif %} courts → une seule ligne.
+    const opens: Record<string, Kind> = { open: 'close', topen: 'tend' };
+    for (let i = 0; i < segs.length; i++) {
+      const o = segs[i];
+      const closeKind = opens[o.kind];
+      if (!closeKind) continue;
+      const a = segs[i + 1], b = segs[i + 2];
+      // bloc vide : <x></x>
+      if (a && a.kind === closeKind && a.name === o.name) {
+        segs.splice(i, 2, { depth: o.depth, text: o.text + a.text, kind: 'leaf' });
+        continue;
+      }
+      // bloc à contenu inline unique : <x>contenu</x>
+      if (a && a.kind === 'inline' && b && b.kind === closeKind && b.name === o.name) {
+        segs.splice(i, 3, { depth: o.depth, text: o.text + a.text + b.text, kind: 'leaf' });
+      }
+    }
+
+    return segs.map(s => {
+      const pad = '  '.repeat(s.depth);
+      if (s.kind === 'raw') {
+        const lines = s.text.split('\n');
+        return pad + lines[0] + (lines.length > 1 ? '\n' + lines.slice(1).join('\n') : '');
+      }
+      return pad + s.text;
+    }).join('\n').trim();
   }
 
   // ── Button factories ───────────────────────────────────────────────────────
@@ -3367,6 +3779,7 @@ export class WysiwygEditor {
     this.assignFieldIdentity(picker, `${cmd}-picker`);
     picker.style.cssText = 'position:fixed;bottom:0;right:0;width:0;height:0;opacity:0;pointer-events:none;';
     document.body.appendChild(picker);
+    this.docCleanups.add(() => picker.remove());
     picker.addEventListener('change', () => {
       pickerOpen = false;
       pickerHint.style.display = 'none';
@@ -3393,7 +3806,7 @@ export class WysiwygEditor {
       this.saveRange();
       panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
     });
-    document.addEventListener('mousedown', (e) => {
+    this.listenDoc('mousedown', (e) => {
       if (pickerOpen) return;
       if (!wrap.contains(e.target as Node)) panel.style.display = 'none';
     });
@@ -4104,6 +4517,8 @@ const icn = {
   draw:         S('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 15l3-4 2 2 3-5 3 7" stroke-linecap="round" stroke-linejoin="round"/>'),
   elementProps: S('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>'),
   qrcode:       S('<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="16" y="16" width="2" height="2"/><rect x="20" y="14" width="1" height="3"/><rect x="14" y="20" width="3" height="1"/>'),
+  audio:        S('<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/>'),
+  audioStop:    S('<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor"/><rect x="15" y="9" width="6" height="6" fill="currentColor" stroke="none"/>'),
   specialChar:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 3C8 3 5 7 5 12s3 9 7 9 7-4 7-9"/><path d="M16 8l-2 4h4l-2 4"/></svg>`,
   image:        S('<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>'),
   link:         S('<path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>'),

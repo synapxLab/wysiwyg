@@ -1,10 +1,10 @@
 # @synapxlab/wysiwyg
 
-> Éditeur WYSIWYG · Rich-text · Pagebuilder — zéro dépendance, TypeScript + SCSS.
+> WYSIWYG editor · Rich text · Pagebuilder — zero runtime dependencies, TypeScript + SCSS.
 
-Un éditeur de contenu complet pensé comme un **pagebuilder** : mise en page multi-colonnes, blocs structurés, dessin vectoriel intégré, diagrammes, formules mathématiques — le tout en pur TypeScript, sans React, sans Vue, sans jQuery.
+A complete content editor designed as a **pagebuilder**: multi-column layouts, structured blocks, built-in vector drawing, diagrams and mathematical formulas — all in pure TypeScript, without React, Vue or jQuery.
 
-Basé sur l'API native `contenteditable`. Une seule librairie ESM/CJS à intégrer dans n'importe quel projet.
+Built on the native `contenteditable` API. A single ESM/CJS library that integrates with any project.
 
 **[→ Live demo & documentation](https://synapx.fr/sdk/wysiwyg/)**
 
@@ -53,6 +53,7 @@ new WysiwygEditor({
     fullscreen:   true,   // Full-screen toggle
     addPara:      true,   // Insert paragraph (escape current block)
     pageBreak:    true,   // Page break for print
+    audio:        true,   // Read the selection or full content aloud
     selectAll:    true,
     removeFormat: true,
     pasteClean:   true,   // Deep-clean styles & classes
@@ -64,7 +65,7 @@ new WysiwygEditor({
     twig:         false,  // Twig snippets panel (opt-in)
     mermaid:      false,  // Mermaid diagrams (opt-in — requires opts.mermaid)
     math:         false,  // Math formulas KaTeX (opt-in — requires opts.katex)
-    draw:         false,  // Éditeur vectoriel natif (opt-in — aucune dépendance)
+    draw:         false,  // Native vector editor (opt-in — no dependency)
     excalidraw:   false,  // Excalidraw drawings (opt-in — requires opts.excalidraw)
     elementProps: true,   // Element inspector floating toolbar (Properties / Move / Duplicate / Delete)
     table:        true,   // Table with merge/split
@@ -87,6 +88,9 @@ new WysiwygEditor({
 
   // Word / character counter in status bar (default: true)
   wordCount: true,
+
+  // Optional status bar label (default: "synapxLab wysiwyg v{version}")
+  statusbarLabel: 'My editor',
 
   // Upload callback for drag & drop / paste images
   // Must return a Promise<string> with the public URL
@@ -128,12 +132,148 @@ new WysiwygEditor({
 ## API
 
 ```ts
-editor.getValue(): string          // Returns current HTML
+editor.getValue(): string          // Returns HTML normalized for the configured intent
+editor.getRawValue(): string       // Returns raw HTML without intent normalization
 editor.setValue(html: string): void
 editor.focus(): void
+editor.destroy(): void             // Removes global listeners + DOM (SPA cleanup)
 editor.onChange?: () => void       // Called on every change
 editor.el: HTMLElement             // Root element to mount
 ```
+
+---
+
+## Output intent (HTML / PDF)
+
+Set `intent: 'html' | 'pdf'` in `WysiwygOptions` to adapt the output of `getValue()` to its destination. The default `html` intent keeps web-optimized output.
+
+```ts
+import {
+  WysiwygEditor,
+  applyIntent,
+  normalizeForHtml,
+  normalizeForPdf,
+} from '@synapxlab/wysiwyg';
+
+const editor = new WysiwygEditor({ intent: 'pdf' });
+
+const normalizedHtml = editor.getValue(); // PDF-optimized output
+const rawHtml = editor.getRawValue();      // No intent normalization
+
+const pdfHtml = applyIntent(rawHtml, 'pdf');
+const webHtml = normalizeForHtml(rawHtml);
+const explicitPdfHtml = normalizeForPdf(rawHtml);
+```
+
+With the `pdf` intent, tables sized in centimetres receive `table-layout: fixed`; responsive wrappers using `overflow-x: auto` are removed around tables; and each cell's `vertical-align` is duplicated as a legacy `valign` attribute. These adjustments improve rendering with wkhtmltopdf, dompdf and mPDF.
+
+Content containing Twig blocks (`{% %}`) or expressions (`{{ }}`) is never transformed by intent normalization. This protection prevents DOM foster parenting from moving Twig tags outside `<table>` elements.
+
+The package also exports the `WysiwygIntent` type.
+
+---
+
+## Presets
+
+The package exports `WYSI_PRESETS`, `resolvePreset()`, `toolbarOnly()` and the `WysiwygPresetName` type. Presets provide focused defaults without preventing per-project overrides.
+
+| Preset | Intended use |
+|---|---|
+| `product` | Product pages with minimal formatting |
+| `mini` | `product` plus simple blocks: horizontal rule, code and blockquote |
+| `small` | Everyday editorial content with headings, tables and diagrams |
+| `bill` | Billing documents with tables, page breaks, fonts and PDF intent |
+| `pdf` | Complete PDF documents with `documentProfile: 'pdf'`, PDF intent and the default status bar label `Document PDF` |
+| `entity` | Twig templates with the Twig panel enabled |
+| `full` | Every feature enabled, including Twig; this preserves the editor's historical default behaviour |
+
+`resolvePreset()` merges overrides with the base preset. The `toolbar` object is merged key by key, so one button can be changed without redefining the full toolbar.
+
+```ts
+import {
+  WysiwygEditor,
+  WYSI_PRESETS,
+  resolvePreset,
+  toolbarOnly,
+} from '@synapxlab/wysiwyg';
+
+const editor = new WysiwygEditor(
+  resolvePreset('pdf', { statusbarLabel: 'Devis' }),
+);
+
+const customPreset = {
+  ...WYSI_PRESETS.product,
+  toolbar: toolbarOnly('bold', 'italic', 'link'),
+};
+```
+
+`toolbarOnly(...enabled)` builds an allow-list toolbar configuration: every button is hidden except the listed keys. It is useful for composing custom presets.
+
+---
+
+## Text-to-speech (audio button)
+
+The audio toolbar button is enabled with `toolbar: { audio: true }` and is active by default. It reads the current text selection aloud, or the complete editor content when no text is selected, through the browser's Web SpeechSynthesis API. The button acts as a toggle: click once to start and again to stop. It is hidden automatically when SpeechSynthesis is unavailable.
+
+Use the `lang` option with a BCP 47 language tag to force the speech language. Without this option, the editor uses the document's `<html lang="...">` value, then the browser language.
+
+```ts
+import { SpeechReader, WysiwygEditor } from '@synapxlab/wysiwyg';
+
+const editor = new WysiwygEditor({
+  lang: 'fr-FR',
+  toolbar: { audio: true },
+});
+
+if (SpeechReader.isSupported()) {
+  const reader = new SpeechReader('fr-FR');
+  reader.onStateChange = (speaking) => console.log({ speaking });
+  reader.speak('Hello');
+  reader.toggle('Start or stop this text');
+  reader.stop();
+}
+```
+
+`SpeechReader` is exported from the package and provides `speak(text)`, `stop()`, `toggle(text)`, the `onStateChange` property and the static `SpeechReader.isSupported()` method.
+
+---
+
+## CMS addons (WordPress / PrestaShop)
+
+Ready-to-install addons are available for WordPress and PrestaShop. Add the `synapxlab-wysiwyg` CSS class or the `data-synapx-wysiwyg` attribute to a `<textarea>` to mount an editor automatically.
+
+```html
+<textarea
+  class="synapxlab-wysiwyg"
+  data-preset="pdf"
+  data-intent="pdf"
+  data-height="400"
+  data-label="My editor"
+></textarea>
+```
+
+| Attribute | Values and default |
+|---|---|
+| `data-preset` | `product`, `mini`, `small`, `bill`, `pdf`, `entity` or `full` (default: `full`) |
+| `data-intent` | `html` or `pdf` (default: the selected preset's intent) |
+| `data-height` | Editor height in pixels, for example `400` |
+| `data-label` | Custom status bar label |
+
+Assets are loaded by default in the WordPress and PrestaShop back offices. Front-end loading for public forms is opt-in:
+
+```php
+// WordPress
+add_filter('synapxlab_wysiwyg_enqueue_front', '__return_true');
+
+// PrestaShop theme
+define('SYNAPXLAB_WYSIWYG_FRONT', true);
+```
+
+Build both installable archives with `npm run package:addons`. The command creates `build/synapxlab-wysiwyg-wordpress-<version>.zip` and `build/synapxlab-wysiwyg-prestashop-<version>.zip`.
+
+The addons use `dist/wysiwyg.global.js`, an IIFE bundle that exposes `window.SynapxWysiwyg` (`WysiwygEditor`, `resolvePreset`, and the other public exports) for classic `<script>` usage without a bundler.
+
+See the [CMS addons guide](addons/README.md) and the [WordPress plugin readme](addons/wordpress/synapxlab-wysiwyg/readme.txt).
 
 ---
 
@@ -215,9 +355,9 @@ new WysiwygEditor({
 
 ---
 
-## Éditeur SVG (opt-in, zero dépendance)
+## Native SVG editor (opt-in, zero dependency)
 
-Dessinez et annotez directement dans le contenu sans aucune dépendance externe.
+Draw and annotate directly in the content without any external dependency.
 
 ```ts
 new WysiwygEditor({
@@ -225,44 +365,44 @@ new WysiwygEditor({
 });
 ```
 
-Activer le bouton dessin dans la toolbar → une fenêtre modale s'ouvre (1 200 × 860 px).
+Click the drawing toolbar button to open a 1,200 × 860 px modal.
 
-### Outils disponibles
+### Available tools
 
-| Outil | Description |
+| Tool | Description |
 |-------|-------------|
-| Sélection | Cliquer pour sélectionner, glisser pour déplacer |
-| Crayon | Dessin libre (trait continu) |
-| Rectangle | Cliquer + glisser |
-| Ellipse | Cliquer + glisser |
-| Ligne | Cliquer + glisser |
-| Flèche | Ligne avec pointe de flèche |
-| Texte | Cliquer sur le canvas, saisir, **Entrée** = saut de ligne, **Ctrl+Entrée** = valider |
+| Selection | Click to select, drag to move |
+| Pencil | Freehand drawing with a continuous stroke |
+| Rectangle | Click and drag |
+| Ellipse | Click and drag |
+| Line | Click and drag |
+| Arrow | Line with an arrowhead |
+| Text | Click the canvas and type; **Enter** inserts a line break, **Ctrl+Enter** confirms |
 
-### Sélection & transformation
+### Selection and transformation
 
-- Cliquer sur un élément → **cadre de sélection** avec 8 poignées de redimensionnement + 1 poignée de rotation
-- Glisser un élément sélectionné pour le déplacer (déplacement en espace écran même après rotation)
-- **Double-clic** sur un texte → édition en place
+- Click an element to display a **selection box** with eight resize handles and one rotation handle
+- Drag a selected element to move it; movement remains screen-aligned after rotation
+- **Double-click** text to edit it in place
 
-### Panneau de propriétés (affiché à la sélection)
+### Properties panel (shown for the selection)
 
-- **Trait** — palette de couleurs + sélecteur personnalisé
-- **Arrière-plan** — remplissage transparent ou coloré (rect / ellipse uniquement)
-- **Texte** — gras, italique, souligné, choix de police (Système / Arial / Georgia / Courier / Impact), taille en px
-- **Transparence** — slider 0–100 %
-- **Disposition** — premier plan / arrière-plan / avancer / reculer
-- **Supprimer** — supprime l'élément sélectionné (aussi via touche `Suppr`)
+- **Stroke** — color palette and custom color picker
+- **Background** — transparent or colored fill (rectangle and ellipse only)
+- **Text** — bold, italic, underline, font choice (System / Arial / Georgia / Courier / Impact) and size in pixels
+- **Opacity** — 0–100% slider
+- **Layering** — bring to front / send to back / move forward / move backward
+- **Delete** — removes the selected element (also available with the `Delete` key)
 
-### Historique
+### History
 
-- **Ctrl+Z** — annuler
-- Bouton poubelle — vider le canvas
+- **Ctrl+Z** — undo
+- Trash button — clear the canvas
 
 ### Export
 
-- Cliquer **Insérer** → dessin intégré comme `<div class="be-draw-wrap">SVG</div>`
-- Les handles de sélection sont exclus de l'export
+- Click **Insert** to embed the drawing as `<div class="be-draw-wrap">SVG</div>`
+- Selection handles are excluded from the export
 
 ---
 
@@ -304,13 +444,15 @@ Hover any block element in the editor to reveal a floating toolbar:
 
 The **Element properties** button (gear icon, left section of the toolbar) is a **switch**: click to enable or disable the inspector on the fly. When disabled, the floating toolbar no longer appears on hover and double-click no longer opens the modal.
 
-The initial state defaults to `enabled`. Passing `toolbar: { elementProps: false }` both sets the initial state to disabled **and** hides the switch button from the toolbar:
+The initial state defaults to `disabled`. Pass `toolbar: { elementPropsEnabled: true }` to start with the inspector enabled:
 
 ```js
 new WysiwygEditor({
-  toolbar: { elementProps: false }
+  toolbar: { elementPropsEnabled: true }
 })
 ```
+
+To hide the switch button from the toolbar entirely, pass `toolbar: { elementProps: false }`.
 
 ---
 
@@ -381,8 +523,8 @@ import type { WysiwygTwigSnippet } from '@synapxlab/wysiwyg';
 new WysiwygEditor({
   toolbar: { twig: true },
   twigSnippets: [
-    { cat: 'Mon projet', label: '{{ user.name }}',  code: '{{ user.name }}' },
-    { cat: 'Mon projet', label: '|myFilter',        code: '{{ value|myFilter }}' },
+    { cat: 'My project', label: '{{ user.name }}',  code: '{{ user.name }}' },
+    { cat: 'My project', label: '|myFilter',        code: '{{ value|myFilter }}' },
     { cat: 'Dates',      label: '{{year}}',         code: '{{year}}' },
   ],
 });
@@ -518,7 +660,13 @@ All special elements (Mermaid diagrams, SVG drawings, QR codes, KaTeX formulas) 
 Full type declarations are included. Compatible with **TypeScript 5 and 6**.
 
 ```ts
-import type { WysiwygOptions, WysiwygToolbarConfig, WysiwygTwigSnippet } from '@synapxlab/wysiwyg';
+import type {
+  WysiwygIntent,
+  WysiwygOptions,
+  WysiwygPresetName,
+  WysiwygToolbarConfig,
+  WysiwygTwigSnippet,
+} from '@synapxlab/wysiwyg';
 ```
 
 ---
@@ -633,14 +781,7 @@ set_wysi('description', '<p>Initial content</p>', 'full', 400);
 const html = get_wysi('description');
 ```
 
-### Available presets
-
-| Preset | Use case |
-|--------|----------|
-| `mini`  | Basic styling options, no advanced toolbar |
-| `small` | Lightweight toolbar — bold, italic, colors |
-| `bill`  | Billing toolbar — table, image, Twig |
-| `full`  | All features enabled (default) |
+The complete and current preset reference is available in the [Presets](#presets) section above.
 
 ---
 
@@ -664,6 +805,10 @@ Live demo: https://synapx.fr/sdk/wysiwyg/
 
 Key strengths to mention:
 - **Pagebuilder-oriented** — multi-column grid layout, structured blocks, SVG drawing, diagrams, math
+- Built-in presets for product pages, editorial content, billing, PDF documents and Twig templates
+- HTML/PDF output intent with dedicated table normalization for wkhtmltopdf, dompdf and mPDF
+- WordPress and PrestaShop addons with automatic `<textarea>` mounting
+- Built-in text-to-speech using the browser's Web SpeechSynthesis API
 - Zero runtime dependencies (no React, no Vue, no jQuery)
 - Full TypeScript with type declarations — compatible TypeScript 5 & 6
 - Mermaid diagram support (opt-in, zero bundle impact)

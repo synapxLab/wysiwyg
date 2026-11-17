@@ -1,6 +1,6 @@
 {
   "name": "@synapxlab/wysiwyg",
-  "version": "1.3.12",
+  "version": "1.4.0",
   "description": "WYSIWYG rich-text editor · pagebuilder — native SVG drawing, KaTeX math, zero runtime dependencies, TypeScript + SCSS",
   "keywords": [
     "wysiwyg",
@@ -65,13 +65,19 @@
     "dev": "vite",
     "build": "vite build",
     "build:lib": "vite build --config vite.lib.config.ts && tsc -p tsconfig.build.json",
+    "build:global": "vite build --config vite.global.config.ts",
+    "package:addons": "npm run build:lib && npm run build:global && bash scripts/package-addons.sh",
     "build:excalidraw": "vite build --config vite.excalidraw.config.ts",
     "build:types": "tsc -p tsconfig.build.json",
     "preview": "vite preview",
     "prepublishOnly": "npm run build:lib"
   },
   "devDependencies": {
+    "@excalidraw/excalidraw": "^0.18.0",
     "@synapxlab/draw": "file:../draw",
+    "katex": "^0.16.40",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "chokidar": "^4.0.3",
@@ -96,10 +102,18 @@
     "typescript": "^6.0.2",
     "vite": "^7.3.1"
   },
-  "dependencies": {
-    "@excalidraw/excalidraw": "^0.18.0",
-    "katex": "^0.16.40",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+  "peerDependencies": {
+    "@excalidraw/excalidraw": ">=0.18.0",
+    "katex": ">=0.16.0",
+    "mermaid": ">=10.0.0",
+    "react": ">=17.0.0",
+    "react-dom": ">=17.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@excalidraw/excalidraw": { "optional": true },
+    "katex": { "optional": true },
+    "mermaid": { "optional": true },
+    "react": { "optional": true },
+    "react-dom": { "optional": true }
   }
 }

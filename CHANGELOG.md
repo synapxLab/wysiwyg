@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **`destroy()`** — détruit proprement l'instance : retire tous les listeners attachés à `document` (click-outside des panneaux, raccourcis image, drags de redimensionnement, Escape plein écran, sélecteurs de couleur), les éléments montés dans `document.body` (overlay de redimensionnement d'image, toolbar d'éléments, modale de formulaire, inputs couleur cachés) et le DOM de l'éditeur. Indispensable en SPA pour éviter les fuites mémoire.
+
+### Changed
+- **Dépendances npm allégées** — `react`, `react-dom`, `katex` et `@excalidraw/excalidraw` ne sont plus des `dependencies` : elles passent en `devDependencies` (démo locale) et `peerDependencies` **optionnelles** (avec `mermaid`). `npm install @synapxlab/wysiwyg` n'installe plus React ni KaTeX — conforme à la promesse « zero runtime dependencies », ces libs étant injectées via `opts.katex` / `opts.excalidraw` / `opts.mermaid`.
+
+### Fixed
+- **Plein écran — handler Escape fantôme** — quitter le plein écran via le bouton de la toolbar laissait le handler `keydown` attaché ; un appui ultérieur sur Escape re-basculait l'éditeur en plein écran. Le handler est désormais retiré à chaque sortie, quel que soit le chemin (bouton ou Escape).
+
+## [1.4.0] — 2026-07-04
+
+### Added
+
+- **Intention de sortie HTML/PDF** — nouvelle option `intent: 'html' | 'pdf'` et nouveau type `WysiwygIntent`. `getValue()` normalise désormais le HTML selon sa destination, tandis que `getRawValue()` restitue le contenu brut. Les fonctions `applyIntent()`, `normalizeForPdf()` et `normalizeForHtml()` sont exportées. En mode PDF, les tableaux dimensionnés en centimètres sont figés avec `table-layout: fixed`, les conteneurs responsives sont retirés et `vertical-align` est dupliqué dans l'attribut `valign`. Les contenus Twig restent systématiquement intacts afin d'éviter le *foster parenting* du parseur DOM.
+- **Presets intégrés** — export de `WYSI_PRESETS`, `resolvePreset()`, `toolbarOnly()` et du type `WysiwygPresetName`. Sept configurations sont disponibles : `product`, `mini`, `small`, `bill`, `pdf`, `entity` et `full`. `resolvePreset()` fusionne les surcharges avec la configuration de base, y compris la barre d'outils clé par clé ; `toolbarOnly()` permet de composer une barre d'outils en liste blanche.
+- **Lecture audio** — nouveau bouton `toolbar: { audio: true }`, actif par défaut et automatiquement masqué lorsque l'API Web SpeechSynthesis est indisponible. Il lit la sélection courante ou tout le contenu, avec un second clic pour arrêter la lecture. L'option `lang` accepte un code BCP 47 ; la classe exportée `SpeechReader` fournit `speak()`, `stop()`, `toggle()`, `onStateChange` et `isSupported()`.
+- **Addons WordPress et PrestaShop** — nouveaux addons CMS avec montage automatique sur les éléments `<textarea>` ciblés par la classe `synapxlab-wysiwyg` ou l'attribut `data-synapx-wysiwyg`. Ils prennent en charge les attributs `data-preset`, `data-intent`, `data-height` et `data-label`, se chargent par défaut dans le back-office et restent optionnels côté front.
+- **Bundle global sans bundler** — nouveau bundle IIFE `dist/wysiwyg.global.js`, qui expose l'API publique sous `window.SynapxWysiwyg` pour un chargement par balise `<script>` classique. La commande `npm run package:addons` génère les archives WordPress et PrestaShop installables dans `build/`.
+
+### Changed
+
+- **Marque de la barre de statut** — le libellé par défaut devient `synapxLab wysiwyg v{version}` à la place de `Adliss.fr v{version}`. Il reste personnalisable avec l'option `statusbarLabel`.
+
 ## [1.3.3] — 2026-03-24
 
 ### Added

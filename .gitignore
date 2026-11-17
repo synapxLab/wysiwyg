@@ -4,6 +4,12 @@ node_modules/
 # Build output — rebuilt by CI / prepublishOnly
 dist/
 httpdocs/dist/
+build/
+*.tgz
+
+# Assets copiés dans les addons par scripts/package-addons.sh
+addons/wordpress/synapxlab-wysiwyg/assets/
+addons/prestashop/synapxlabwysiwyg/views/
 
 # Vite cache
 *.timestamp-*

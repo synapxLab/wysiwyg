@@ -879,9 +879,12 @@
     line-height: 1.7;
     padding: 10px;
     tab-size: 2;
-    white-space: pre-wrap;
-    overflow-wrap: break-word;
-    word-break: break-all;
+    // pas de retour à la ligne auto : le textarea (wrap=off) et le <pre> coupent
+    // de façon identique → coloration parfaitement alignée même sur lignes longues.
+    // Le scroll horizontal est synchronisé entre les deux couches.
+    white-space: pre;
+    overflow-wrap: normal;
+    word-break: normal;
     margin: 0;
     border: none;
     outline: none;
