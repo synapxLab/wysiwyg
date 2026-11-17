@@ -2021,16 +2021,45 @@ export class WysiwygEditor {
     this.closePanel();
     const panel = document.createElement('div');
     panel.className = 'be-wysiwyg__panel';
-    const rect = btn.getBoundingClientRect();
-    const barRect = this.toolbarEl.getBoundingClientRect();
-    panel.style.left = `${rect.left - barRect.left}px`;
     this.toolbarEl.appendChild(panel);
     panel.appendChild(content);
+    this.placePanel(panel, btn);
     this.activePanel = panel;
     this.activePanelBtn = btn;
+    window.addEventListener('scroll', this.onPanelScroll, true);
+    window.addEventListener('resize', this.onPanelResize);
   }
 
+  /**
+   * Position FIXE, calée sur le bouton : `.be-wysiwyg` est en overflow:hidden et rognait
+   * le panneau dès que l'éditeur est bas (Adliss : 200-300 px). S'ouvre vers le haut
+   * s'il manque de place en bas, reste dans la fenêtre. Le décalage mesuré à (0,0)
+   * compense un ancêtre transformé (modale), qui devient alors le repère du `fixed`.
+   */
+  private placePanel(panel: HTMLElement, btn: HTMLElement): void {
+    panel.style.position = 'fixed';
+    panel.style.left = '0px';
+    panel.style.top = '0px';
+    const origin = panel.getBoundingClientRect();
+    const r = btn.getBoundingClientRect();
+    const w = origin.width, h = origin.height, m = 8;
+    const left = Math.max(m, Math.min(r.left, window.innerWidth - w - m));
+    let top = r.bottom + 4;
+    if (top + h > window.innerHeight - m && r.top - 4 - h >= m) top = r.top - 4 - h;
+    panel.style.left = `${left - origin.left}px`;
+    panel.style.top = `${top - origin.top}px`;
+  }
+
+  private onPanelScroll = (e: Event): void => {
+    if (this.activePanel && e.target instanceof Node && this.activePanel.contains(e.target)) return;
+    this.closePanel();
+  };
+
+  private onPanelResize = (): void => { this.closePanel(); };
+
   private closePanel(): void {
+    window.removeEventListener('scroll', this.onPanelScroll, true);
+    window.removeEventListener('resize', this.onPanelResize);
     this.activePanel?.remove();
     this.activePanel = null;
     this.activePanelBtn = null;
