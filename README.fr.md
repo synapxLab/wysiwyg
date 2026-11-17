@@ -247,6 +247,13 @@ La lib n'appelle **aucune API** : le bouton `toolbar: { ai: true }` (défaut `fa
 2. Le callback reçoit `{ action, html, scope }`, où `scope` vaut `'selection'` ou `'document'` (document entier si rien n'est sélectionné).
 3. Une modale affiche l'aperçu avant / après et la liste facultative `modifications`. Rien ne change tant que l'utilisateur n'a pas cliqué sur **Accepter** ; **Annuler** abandonne la proposition.
 4. Si la promesse rejette, le message de l'`Error` est affiché et le contenu reste intact.
+5. Sans texte (éditeur vide, ou sélection faite seulement d'espaces), le callback **n'est pas appelé** : la modale l'indique. Aucun appel facturé pour rien.
+
+Le menu et la modale portent le titre **« Assistant IA »** et indiquent la portée (sélection ou tout le texte) ; la modale précise que la proposition est générée par une IA et doit être relue. Les panneaux de la barre d'outils sont positionnés en fixe : ils restent entièrement visibles même dans un éditeur de faible hauteur.
+
+**Pas de clé, pas de bouton.** Pour masquer l'assistant quand l'IA n'est pas configurée chez vous, ne passez pas `ai` (ou passez `toolbar: { ai: false }`).
+
+> ⚠️ **Ne mettez jamais une clé d'API dans le navigateur en production.** Le callback doit appeler **votre serveur**, qui détient la clé, impose le format de réponse et contrôle le résultat (montants, dates, HTML autorisé) avant de le renvoyer. La [démo](https://synapx.fr/sdk/Wysiwyg/) appelle l'API depuis le navigateur uniquement pour l'illustration, avec une clé fictive.
 
 Le HTML accepté remplace la sélection (ou le document) en une seule étape d'annulation native (Ctrl+Z). Il est nettoyé avant insertion (`script`, `style`, `iframe`…, attributs `on*` et URLs `javascript:` retirés) : c'est une défense en profondeur, votre serveur doit continuer à nettoyer.
 

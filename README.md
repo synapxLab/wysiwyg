@@ -251,6 +251,13 @@ The library calls **no API**: the `toolbar: { ai: true }` button (default `false
 2. The callback receives `{ action, html, scope }`, where `scope` is `'selection'` or `'document'` (whole document when nothing is selected).
 3. A dialog shows a before / after preview and the optional `modifications` list. Nothing changes until the user clicks **Accepter**; **Annuler** discards the proposal.
 4. If the promise rejects, the `Error` message is displayed and the content is left untouched.
+5. With no text (empty editor, or a selection made only of whitespace), the callback is **not called**: the dialog says so. No billed call for nothing.
+
+The menu and the dialog carry an **“Assistant IA”** title and show the scope (selection or whole text); the dialog states that the proposal is AI-generated and must be reviewed. Toolbar panels use fixed positioning, so they stay fully visible even in a short editor.
+
+**No key, no button.** To hide the assistant when AI is not configured on your side, do not pass `ai` (or pass `toolbar: { ai: false }`).
+
+> ⚠️ **Never put an API key in the browser in production.** The callback must call **your server**, which holds the key, enforces the response format and checks the result (amounts, dates, allowed HTML) before returning it. The [demo](https://synapx.fr/sdk/Wysiwyg/) calls the API from the browser for illustration only, with a fake key.
 
 The accepted HTML replaces the selection (or the document) in one native undo step (Ctrl+Z). It is sanitized before insertion (`script`, `style`, `iframe`…, `on*` attributes and `javascript:` URLs removed) — this is defense in depth: your server should still sanitize.
 
