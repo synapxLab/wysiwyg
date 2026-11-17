@@ -53,6 +53,7 @@ new WysiwygEditor({
     fullscreen:   true,   // Mode plein écran
     addPara:      true,   // Insérer un paragraphe (échappe le bloc courant)
     pageBreak:    true,   // Saut de page pour impression
+    ai:           false,  // Bouton Assistant IA (opt-in — nécessite opts.ai)
     audio:        true,   // Lecture audio de la sélection ou du contenu complet
     selectAll:    true,
     removeFormat: true,
@@ -235,6 +236,46 @@ if (SpeechReader.isSupported()) {
 ```
 
 La classe `SpeechReader`, exportée par le package, fournit les méthodes `speak(text)`, `stop()`, `toggle(text)`, la propriété `onStateChange` et la méthode statique `SpeechReader.isSupported()`.
+
+---
+
+## Assistant IA (opt-in)
+
+La lib n'appelle **aucune API** : le bouton `toolbar: { ai: true }` (défaut `false`) n'apparaît que si `opts.ai` est une fonction, et délègue le travail à votre application.
+
+1. Le bouton ouvre un menu d'actions (`aiActions` ; par défaut : corriger l'orthographe, reformuler, raccourcir, ton professionnel).
+2. Le callback reçoit `{ action, html, scope }`, où `scope` vaut `'selection'` ou `'document'` (document entier si rien n'est sélectionné).
+3. Une modale affiche l'aperçu avant / après et la liste facultative `modifications`. Rien ne change tant que l'utilisateur n'a pas cliqué sur **Accepter** ; **Annuler** abandonne la proposition.
+4. Si la promesse rejette, le message de l'`Error` est affiché et le contenu reste intact.
+
+Le HTML accepté remplace la sélection (ou le document) en une seule étape d'annulation native (Ctrl+Z). Il est nettoyé avant insertion (`script`, `style`, `iframe`…, attributs `on*` et URLs `javascript:` retirés) : c'est une défense en profondeur, votre serveur doit continuer à nettoyer.
+
+```ts
+new WysiwygEditor({
+  toolbar: { ai: true },
+  ai: async ({ action, html, scope }) => {
+    const res = await fetch('/api/ai-assist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, html, scope }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message ?? 'Assistant IA indisponible');
+    return { html: json.html, modifications: json.modifications };
+  },
+  // Facultatif — défaut : corriger, reformuler, raccourcir, professionnel
+  aiActions: [
+    { id: 'corriger', label: "Corriger l'orthographe" },
+    { id: 'raccourcir', label: 'Raccourcir' },
+  ],
+})
+```
+
+```ts
+interface AiRequest  { action: string; html: string; scope: 'selection' | 'document' }
+interface AiResponse { html: string; modifications?: string[] }
+interface AiAction   { id: string; label: string }
+```
 
 ---
 

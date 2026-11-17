@@ -53,6 +53,7 @@ new WysiwygEditor({
     fullscreen:   true,   // Full-screen toggle
     addPara:      true,   // Insert paragraph (escape current block)
     pageBreak:    true,   // Page break for print
+    ai:           false,  // AI assistant button (opt-in — requires opts.ai)
     audio:        true,   // Read the selection or full content aloud
     selectAll:    true,
     removeFormat: true,
@@ -121,6 +122,10 @@ new WysiwygEditor({
     { cat: 'My project', label: '{{ user.name }}',  code: '{{ user.name }}' },
     { cat: 'My project', label: '|myFilter',        code: '{{ value|myFilter }}' },
   ],
+
+  // AI assistant callback — see "AI assistant (opt-in)"
+  // ai: async ({ action, html, scope }) => ({ html, modifications? }),
+  // aiActions: [{ id, label }],
 
   // Deprecated — use toolbar: { source: false } instead
   hideSource: false,
@@ -235,6 +240,46 @@ if (SpeechReader.isSupported()) {
 ```
 
 `SpeechReader` is exported from the package and provides `speak(text)`, `stop()`, `toggle(text)`, the `onStateChange` property and the static `SpeechReader.isSupported()` method.
+
+---
+
+## AI assistant (opt-in)
+
+The library calls **no API**: the `toolbar: { ai: true }` button (default `false`) only appears when `opts.ai` is a function, and delegates the work to your application.
+
+1. The button opens a menu of actions (`aiActions`; defaults: fix spelling, rephrase, shorten, professional tone).
+2. The callback receives `{ action, html, scope }`, where `scope` is `'selection'` or `'document'` (whole document when nothing is selected).
+3. A dialog shows a before / after preview and the optional `modifications` list. Nothing changes until the user clicks **Accepter**; **Annuler** discards the proposal.
+4. If the promise rejects, the `Error` message is displayed and the content is left untouched.
+
+The accepted HTML replaces the selection (or the document) in one native undo step (Ctrl+Z). It is sanitized before insertion (`script`, `style`, `iframe`…, `on*` attributes and `javascript:` URLs removed) — this is defense in depth: your server should still sanitize.
+
+```ts
+new WysiwygEditor({
+  toolbar: { ai: true },
+  ai: async ({ action, html, scope }) => {
+    const res = await fetch('/api/ai-assist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, html, scope }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message ?? 'AI assistant unavailable');
+    return { html: json.html, modifications: json.modifications };
+  },
+  // Optional — default: corriger, reformuler, raccourcir, professionnel
+  aiActions: [
+    { id: 'corriger', label: "Corriger l'orthographe" },
+    { id: 'raccourcir', label: 'Raccourcir' },
+  ],
+})
+```
+
+```ts
+interface AiRequest  { action: string; html: string; scope: 'selection' | 'document' }
+interface AiResponse { html: string; modifications?: string[] }
+interface AiAction   { id: string; label: string }
+```
 
 ---
 

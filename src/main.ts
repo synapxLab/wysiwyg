@@ -16,7 +16,16 @@ const editor = new WysiwygEditor({
   mermaid,
   katex,
   draw: DrawEditor,
-  toolbar: { mermaid: true, math: true, draw: true },
+  toolbar: { mermaid: true, math: true, draw: true, ai: true },
+  // Démo : callback factice — renvoie le texte en majuscules après 800 ms ; « Reformuler » rejette.
+  ai: async ({ action, html }) => {
+    await new Promise(r => setTimeout(r, 800));
+    if (action === 'reformuler') throw new Error('Service IA indisponible (démo : échec simulé).');
+    const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+    const w = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) n.nodeValue = (n.nodeValue ?? '').toUpperCase();
+    return { html: doc.body.innerHTML, modifications: ['Texte passé en majuscules (démo)'] };
+  },
 });
 editor.el.style.height = '100%';
 wrap.appendChild(editor.el);

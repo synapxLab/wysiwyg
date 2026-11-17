@@ -22,6 +22,37 @@ import { SpeechReader } from './speech';
 
 // ─── Public interface ─────────────────────────────────────────────────────────
 
+/** Requête envoyée au callback `ai` de l'application hôte. */
+export interface AiRequest {
+  /** Identifiant de l'action choisie (voir `aiActions`) */
+  action: string;
+  /** HTML de la sélection, ou du document entier si rien n'est sélectionné */
+  html: string;
+  /** Portée du traitement */
+  scope: 'selection' | 'document';
+}
+
+/** Réponse attendue du callback `ai`. En cas d'échec, la promesse rejette avec une `Error` dont `message` est affichable. */
+export interface AiResponse {
+  /** HTML proposé en remplacement */
+  html: string;
+  /** Liste lisible des modifications effectuées (facultatif) */
+  modifications?: string[];
+}
+
+/** Action proposée dans le menu de l'Assistant IA. */
+export interface AiAction {
+  id: string;
+  label: string;
+}
+
+const DEFAULT_AI_ACTIONS: AiAction[] = [
+  { id: 'corriger', label: "Corriger l'orthographe" },
+  { id: 'reformuler', label: 'Reformuler' },
+  { id: 'raccourcir', label: 'Raccourcir' },
+  { id: 'professionnel', label: 'Ton professionnel' },
+];
+
 /**
  * Active ou désactive chaque bouton / groupe de boutons de la toolbar.
  * Tous les groupes sont visibles par défaut sauf `twig` (false par défaut).
@@ -120,6 +151,8 @@ export interface WysiwygToolbarConfig {
   qrcode?: boolean;
   /** Bouton Lecture audio — lit le contenu via SpeechSynthesis (défaut: true) */
   audio?: boolean;
+  /** Bouton Assistant IA (défaut: false — opt-in, nécessite opts.ai) */
+  ai?: boolean;
   /** Bouton / modale Propriétés des éléments — affiche le bouton dans la toolbar (défaut: true) */
   elementProps?: boolean;
   /** État initial du mode Propriétés des éléments — activé au démarrage (défaut: false) */
@@ -148,6 +181,25 @@ export interface WysiwygOptions {
    * audio. Défaut : `lang` du document, sinon langue du navigateur.
    */
   lang?: string;
+  /**
+   * Callback de l'Assistant IA (bouton `toolbar.ai`). La lib n'appelle aucune API :
+   * elle transmet le HTML de la sélection (ou du document) et affiche la réponse
+   * en aperçu avant / après ; rien n'est modifié sans clic sur « Accepter ».
+   * La promesse doit rejeter avec une `Error` dont `message` est affichable.
+   *
+   * @example
+   * new WysiwygEditor({
+   *   toolbar: { ai: true },
+   *   ai: async ({ action, html, scope }) => {
+   *     const res = await fetch('/api/ai', { method: 'POST', body: JSON.stringify({ action, html, scope }) });
+   *     if (!res.ok) throw new Error((await res.json()).message);
+   *     return res.json(); // { html, modifications? }
+   *   },
+   * })
+   */
+  ai?: (req: AiRequest) => Promise<AiResponse>;
+  /** Actions du menu Assistant IA (défaut : corriger, reformuler, raccourcir, ton professionnel). */
+  aiActions?: AiAction[];
   /**
    * Configuration individuelle des boutons de la toolbar.
    * Chaque clé est un groupe ; sa valeur booléenne l'active ou le masque.
@@ -361,6 +413,8 @@ export class WysiwygEditor {
   private imgOutsideOff: (() => void) | null = null;
   private fullscreenKeyOff: (() => void) | null = null;
   private speechReader: SpeechReader | null = null;
+  private aiBusy = false;
+  private aiModalClose: (() => void) | null = null;
 
   constructor(opts: WysiwygOptions = {}) {
     this.opts = opts;
@@ -453,6 +507,7 @@ export class WysiwygEditor {
     this.hideImgResizer();
     this.closePanel();
     this.formModal.close();
+    this.aiModalClose?.();
     if (this.hideToolbarTimer) { clearTimeout(this.hideToolbarTimer); this.hideToolbarTimer = null; }
     this.speechReader?.stop();
     this.speechReader = null;
@@ -3237,6 +3292,12 @@ export class WysiwygEditor {
       s1.push(this.makeBtn(icn.qrcode, 'Insérer un QR Code', () => this.insertQrcode()));
     if (this.show('audio') && SpeechReader.isSupported())
       s1.push(this.makeBtn(icn.audio, 'Lire le contenu à voix haute', () => this.toggleAudioReading(), 'audio'));
+    if (this.opts.ai && typeof this.opts.ai === 'function' && this.show('ai', false))
+    {
+      const aiBtn = this.makeBtn(icn.ai, 'Assistant IA (corriger, reformuler…)', () => this.openAiMenu(), 'ai');
+      aiBtn.addEventListener('mousedown', () => this.captureAiRange());
+      s1.push(aiBtn);
+    }
     if (s1.length) sections.push(s1);
 
     // ── 2 · Listes ────────────────────────────────────────────────────────────
@@ -3390,6 +3451,241 @@ export class WysiwygEditor {
     }
     const selection = window.getSelection()?.toString().trim();
     this.speechReader.toggle(selection || this.getText());
+  }
+
+  // ── Assistant IA (opt-in, délégué au callback `opts.ai`) ───────────────────
+
+  /** Mémorise la sélection courante si elle se trouve dans la zone d'édition. */
+  private captureAiRange(): void {
+    const sel = window.getSelection();
+    if (sel?.rangeCount && this.editorEl.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+      this.savedRange = sel.getRangeAt(0).cloneRange();
+    }
+  }
+
+  private openAiMenu(): void {
+    const btn = this.toolbarEl.querySelector<HTMLButtonElement>('[data-id="ai"]');
+    if (!btn || this.aiBusy || this.sourceMode) return;
+    if (this.activePanelBtn === btn) { this.closePanel(); return; }
+    this.captureAiRange();
+    const range = this.savedRange?.cloneRange() ?? null;
+
+    const menu = document.createElement('div');
+    menu.className = 'be-ai-menu';
+    menu.setAttribute('role', 'menu');
+    for (const a of this.opts.aiActions ?? DEFAULT_AI_ACTIONS) {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'be-ai-menu__item';
+      item.setAttribute('role', 'menuitem');
+      item.textContent = a.label;
+      item.addEventListener('mousedown', (e) => e.preventDefault());
+      item.addEventListener('click', () => { this.closePanel(); void this.runAiAction(a, range); });
+      menu.appendChild(item);
+    }
+    this.openPanel(btn, menu);
+  }
+
+  /** Retire script/style/iframe & co, attributs on*, URLs javascript:/vbscript:/data:text/html. */
+  private sanitizeAiHtml(html: string): string {
+    const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+    doc.body.querySelectorAll('script,style,iframe,frame,frameset,object,embed,link,meta,base,noscript,template,applet')
+      .forEach(n => n.remove());
+    const URL_ATTRS = new Set(['href', 'src', 'xlink:href', 'action', 'formaction', 'srcdoc', 'poster', 'background']);
+    doc.body.querySelectorAll('*').forEach(el => {
+      for (const attr of Array.from(el.attributes)) {
+        const name = attr.name.toLowerCase();
+        // eslint-disable-next-line no-control-regex
+        const val = attr.value.replace(/[\u0000- \u007f-\u009f]+/g, '').toLowerCase();
+        if (name.startsWith('on') || name === 'srcdoc') { el.removeAttribute(attr.name); continue; }
+        if (URL_ATTRS.has(name) && /^(javascript|vbscript|data:text\/html)/.test(val)) { el.removeAttribute(attr.name); continue; }
+        if (name === 'style' && /expression\(|javascript:|behavior:|-moz-binding/.test(val)) el.removeAttribute(attr.name);
+      }
+    });
+    return doc.body.innerHTML;
+  }
+
+  private async runAiAction(action: AiAction, range: Range | null): Promise<void> {
+    const ai = this.opts.ai;
+    if (!ai || this.aiBusy || this.sourceMode) return;
+
+    // Portée : sélection non vide dans l'éditeur, sinon document entier
+    const usable = range && !range.collapsed && this.editorEl.contains(range.commonAncestorContainer) ? range : null;
+    const scope: AiRequest['scope'] = usable ? 'selection' : 'document';
+    let html: string;
+    if (usable) {
+      const tmp = document.createElement('div');
+      tmp.appendChild(usable.cloneContents());
+      html = tmp.innerHTML;
+    } else {
+      html = this.editorEl.innerHTML;
+    }
+
+    this.aiBusy = true;
+    const btn = this.toolbarEl.querySelector<HTMLButtonElement>('[data-id="ai"]');
+    if (btn) btn.disabled = true;
+
+    let cancelled = false;
+    const ui = this.openAiModal(action.label, scope, () => { cancelled = true; });
+    const finish = () => {
+      this.aiBusy = false;
+      if (btn) btn.disabled = false;
+    };
+    ui.onClosed(finish);
+
+    let res: AiResponse;
+    try {
+      res = await Promise.resolve().then(() => ai({ action: action.id, html, scope }));
+      if (!res || typeof res.html !== 'string') throw new Error('Réponse invalide de l’assistant IA.');
+    } catch (err) {
+      if (cancelled) return;
+      ui.showError(err instanceof Error && err.message ? err.message : 'Échec de l’appel à l’assistant IA.');
+      return;
+    }
+    if (cancelled) return;
+
+    const before = this.sanitizeAiHtml(html);
+    const after = this.sanitizeAiHtml(res.html);
+    const mods = Array.isArray(res.modifications) ? res.modifications.filter(m => typeof m === 'string' && m.trim()) : [];
+    ui.showResult(before, after, mods, () => {
+      const err = this.applyAiResult(after, scope, usable);
+      if (err) ui.showError(err); else ui.close();
+    });
+  }
+
+  /** Remplace la portée par le HTML accepté via execCommand : une seule étape d'annulation native. Retourne un message d'erreur, ou null. */
+  private applyAiResult(html: string, scope: AiRequest['scope'], range: Range | null): string | null {
+    if (this.sourceMode) return 'Quittez le mode source avant d’appliquer la proposition.';
+    const sel = window.getSelection();
+    if (!sel) return 'Sélection indisponible.';
+    let target: Range;
+    if (scope === 'selection') {
+      if (!range || !this.editorEl.contains(range.commonAncestorContainer)) {
+        return 'La sélection d’origine n’existe plus ; rien n’a été modifié.';
+      }
+      target = range;
+    } else {
+      target = document.createRange();
+      target.selectNodeContents(this.editorEl);
+    }
+    this.editorEl.focus();
+    sel.removeAllRanges();
+    sel.addRange(target);
+    let fired = false;
+    const mark = () => { fired = true; };
+    this.editorEl.addEventListener('input', mark);
+    let ok = false;
+    try { ok = document.execCommand('insertHTML', false, html); } finally { this.editorEl.removeEventListener('input', mark); }
+    if (!ok) return 'Le navigateur a refusé l’insertion ; rien n’a été modifié.';
+    if (!fired) this.onChange?.(); // l'événement `input` appelle déjà onChange quand il est émis
+    this.updateWordCount();
+    return null;
+  }
+
+  /** Modale « en cours → avant/après » ; réutilise l'overlay et la pile Escape des autres modales. */
+  private openAiModal(title: string, scope: AiRequest['scope'], onCancel: () => void) {
+    installEscapeHandler();
+    const overlay = document.createElement('div');
+    overlay.className = 'be-props-modal be-ai-modal';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+
+    const dialog = document.createElement('div');
+    dialog.className = 'be-props-modal__dialog';
+    const header = document.createElement('div');
+    header.className = 'be-props-modal__header';
+    const titleEl = document.createElement('span');
+    titleEl.className = 'be-props-modal__title';
+    titleEl.textContent = `Assistant IA — ${title} (${scope === 'selection' ? 'sélection' : 'document entier'})`;
+    header.appendChild(titleEl);
+    const body = document.createElement('div');
+    body.className = 'be-props-modal__body be-ai-modal__body';
+    const footer = document.createElement('div');
+    footer.className = 'be-form-modal__footer';
+    dialog.append(header, body, footer);
+    overlay.appendChild(dialog);
+
+    let closed = false;
+    let closedCb: (() => void) | null = null;
+    let state: 'loading' | 'result' | 'error' = 'loading';
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      if (state === 'loading') onCancel();
+      overlay.remove();
+      popModal();
+      this.aiModalClose = null;
+      closedCb?.();
+    };
+    this.aiModalClose = close;
+    pushModal(close);
+    document.body.appendChild(overlay);
+
+    const mkBtn = (label: string, kind: 'cancel' | 'submit', fn: () => void) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `be-form-modal__btn be-form-modal__btn--${kind}`;
+      b.textContent = label;
+      b.addEventListener('click', fn);
+      return b;
+    };
+
+    // État initial : en cours
+    const spinner = document.createElement('div');
+    spinner.className = 'be-ai-modal__loading';
+    spinner.setAttribute('role', 'status');
+    spinner.textContent = 'En cours…';
+    body.appendChild(spinner);
+    footer.appendChild(mkBtn('Annuler', 'cancel', close));
+
+    const pane = (label: string, html: string) => {
+      const box = document.createElement('div');
+      box.className = 'be-ai-modal__col';
+      const lab = document.createElement('div');
+      lab.className = 'be-form-modal__section';
+      lab.textContent = label;
+      const content = document.createElement('div');
+      content.className = 'be-ai-modal__pane';
+      content.innerHTML = html || '<em>(vide)</em>';
+      box.append(lab, content);
+      return box;
+    };
+
+    return {
+      close,
+      onClosed: (cb: () => void) => { closedCb = cb; },
+      showError: (msg: string) => {
+        if (closed) return;
+        state = 'error';
+        body.replaceChildren();
+        const e = document.createElement('div');
+        e.className = 'be-ai-modal__error';
+        e.setAttribute('role', 'alert');
+        e.textContent = msg;
+        body.appendChild(e);
+        footer.replaceChildren(mkBtn('Fermer', 'cancel', close));
+      },
+      showResult: (before: string, after: string, mods: string[], onAccept: () => void) => {
+        if (closed) return;
+        state = 'result';
+        body.replaceChildren();
+        const cols = document.createElement('div');
+        cols.className = 'be-ai-modal__cols';
+        cols.append(pane('Avant', before), pane('Après', after));
+        body.appendChild(cols);
+        if (mods.length) {
+          const lab = document.createElement('div');
+          lab.className = 'be-form-modal__section';
+          lab.textContent = 'Modifications';
+          const ul = document.createElement('ul');
+          ul.className = 'be-ai-modal__mods';
+          for (const m of mods) { const li = document.createElement('li'); li.textContent = m; ul.appendChild(li); }
+          body.append(lab, ul);
+        }
+        footer.replaceChildren(mkBtn('Annuler', 'cancel', close), mkBtn('Accepter', 'submit', onAccept));
+      },
+    };
   }
 
   private toggleElementProps(): void {
@@ -4518,6 +4814,7 @@ const icn = {
   elementProps: S('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>'),
   qrcode:       S('<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="16" y="16" width="2" height="2"/><rect x="20" y="14" width="1" height="3"/><rect x="14" y="20" width="3" height="1"/>'),
   audio:        S('<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/>'),
+  ai:           S('<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z"/>'),
   audioStop:    S('<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor"/><rect x="15" y="9" width="6" height="6" fill="currentColor" stroke="none"/>'),
   specialChar:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 3C8 3 5 7 5 12s3 9 7 9 7-4 7-9"/><path d="M16 8l-2 4h4l-2 4"/></svg>`,
   image:        S('<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>'),

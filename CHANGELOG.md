@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-11-17
+
+### Added
+- **Assistant IA (opt-in)** — nouveau bouton `toolbar: { ai: true }` (défaut `false`), affiché uniquement si `opts.ai` est une fonction. La lib n'appelle aucune API : elle délègue au callback `ai({ action, html, scope })` de l'application hôte (`Promise<{ html, modifications? }>`, rejet avec une `Error` au message affichable). Le menu propose, par défaut, Corriger l'orthographe / Reformuler / Raccourcir / Ton professionnel (personnalisable via `aiActions`). Le traitement porte sur la sélection, ou sur tout le document si rien n'est sélectionné ; une modale affiche l'aperçu avant / après et la liste des modifications, et rien n'est modifié sans clic sur **Accepter**. L'insertion se fait en une seule étape d'annulation (Ctrl+Z). Le HTML reçu est nettoyé (script, style, iframe, attributs `on*`, URLs `javascript:`) avant insertion. Types exportés : `AiRequest`, `AiResponse`, `AiAction`.
+
 ### Added
 - **`destroy()`** — détruit proprement l'instance : retire tous les listeners attachés à `document` (click-outside des panneaux, raccourcis image, drags de redimensionnement, Escape plein écran, sélecteurs de couleur), les éléments montés dans `document.body` (overlay de redimensionnement d'image, toolbar d'éléments, modale de formulaire, inputs couleur cachés) et le DOM de l'éditeur. Indispensable en SPA pour éviter les fuites mémoire.
 
